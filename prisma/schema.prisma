@@ -1,0 +1,198 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  DISTRIBUTOR
+  PRODUCER
+  ADMIN
+}
+
+enum OrderStatus {
+  DRAFT
+  SUBMITTED
+  CONFIRMED
+  IN_PRODUCTION
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum ProductUnit {
+  KG
+  PIECE
+}
+
+enum ProductionBatchStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum NotificationType {
+  ORDER_STATUS
+  ORDER_CHANGE
+  PRODUCTION_UPDATE
+  SYSTEM
+}
+
+model User {
+  id           String   @id @default(uuid())
+  telegramId   BigInt   @unique @map("telegram_id")
+  role         UserRole
+  name         String
+  phone        String?
+  companyName  String?  @map("company_name")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  orders               Order[]
+  notifications        Notification[]
+  orderStatusChanges   OrderStatusHistory[]
+
+  @@map("users")
+}
+
+model Product {
+  id                    String      @id @default(uuid())
+  name                  String
+  code                  String      @unique
+  unit                  ProductUnit
+  baseRecipe            Json?       @map("base_recipe")
+  productionParameters  Json?       @map("production_parameters")
+  isActive              Boolean     @default(true) @map("is_active")
+  createdAt             DateTime    @default(now()) @map("created_at")
+  updatedAt             DateTime    @updatedAt @map("updated_at")
+
+  orderItems            OrderItem[]
+  productionBatchItems  ProductionBatchItem[]
+
+  @@map("products")
+}
+
+model Order {
+  id           String       @id @default(uuid())
+  orderNumber  String       @unique @map("order_number")
+  distributorId String      @map("distributor_id")
+  orderDate    DateTime     @map("order_date") @db.Date
+  deliveryDate DateTime     @map("delivery_date") @db.Date
+  status       OrderStatus  @default(DRAFT)
+  totalAmount  Decimal      @default(0) @map("total_amount") @db.Decimal(10, 2)
+  notes        String?
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  distributor      User                  @relation(fields: [distributorId], references: [id])
+  items            OrderItem[]
+  statusHistory    OrderStatusHistory[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id                String   @id @default(uuid())
+  orderId           String   @map("order_id")
+  productId         String   @map("product_id")
+  quantity          Decimal  @db.Decimal(10, 2)
+  originalQuantity  Decimal  @map("original_quantity") @db.Decimal(10, 2)
+  adjustedQuantity  Decimal? @map("adjusted_quantity") @db.Decimal(10, 2)
+  adjustmentReason  String?  @map("adjustment_reason")
+  unitPrice         Decimal  @map("unit_price") @db.Decimal(10, 2)
+  totalPrice        Decimal  @map("total_price") @db.Decimal(10, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+model ProductionBatch {
+  id             String                 @id @default(uuid())
+  batchNumber    String                 @unique @map("batch_number")
+  productionDate DateTime               @map("production_date") @db.Date
+  status         ProductionBatchStatus  @default(PLANNED)
+  totalCapacity  Decimal                @map("total_capacity") @db.Decimal(10, 2)
+  usedCapacity   Decimal                @default(0) @map("used_capacity") @db.Decimal(10, 2)
+  notes          String?
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+
+  items ProductionBatchItem[]
+
+  @@map("production_batches")
+}
+
+model ProductionBatchItem {
+  id              String   @id @default(uuid())
+  batchId         String   @map("batch_id")
+  productId       String   @map("product_id")
+  plannedQuantity Decimal  @map("planned_quantity") @db.Decimal(10, 2)
+  actualQuantity  Decimal? @map("actual_quantity") @db.Decimal(10, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  batch   ProductionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id])
+
+  @@map("production_batch_items")
+}
+
+model OrderStatusHistory {
+  id        String   @id @default(uuid())
+  orderId   String   @map("order_id")
+  status    String
+  changedBy String   @map("changed_by")
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [changedBy], references: [id])
+
+  @@map("order_status_history")
+}
+
+model Notification {
+  id                String           @id @default(uuid())
+  userId            String           @map("user_id")
+  type              NotificationType
+  title             String
+  message           String
+  isRead            Boolean          @default(false) @map("is_read")
+  relatedEntityType String?          @map("related_entity_type")
+  relatedEntityId   String?          @map("related_entity_id")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+model OrderTimeSetting {
+  id                      String   @id @default(uuid())
+  orderStartTime          String   @map("order_start_time")
+  orderEndTime            String   @map("order_end_time")
+  isActive                Boolean  @default(true) @map("is_active")
+  notificationBeforeClose Int      @default(30) @map("notification_before_close")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@map("order_time_settings")
+}
