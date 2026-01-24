@@ -11,32 +11,52 @@ export class AppError extends Error {
   }
 }
 
-export class ValidationError extends AppError {
+export class ValidationError extends Error {
+  statusCode: number;
+
   constructor(message: string) {
-    super(message, 400);
+    super(message);
+    this.name = 'ValidationError';
+    this.statusCode = 400;
   }
 }
 
-export class AuthenticationError extends AppError {
-  constructor(message: string = 'Autentifikatsiya xatosi') {
-    super(message, 401);
+export class AuthenticationError extends Error {
+  statusCode: number;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthenticationError';
+    this.statusCode = 401;
   }
 }
 
-export class AuthorizationError extends AppError {
-  constructor(message: string = 'Sizda ruxsat yo\'q') {
-    super(message, 403);
+export class AuthorizationError extends Error {
+  statusCode: number;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthorizationError';
+    this.statusCode = 403;
   }
 }
 
-export class NotFoundError extends AppError {
-  constructor(message: string = 'Ma\'lumot topilmadi') {
-    super(message, 404);
+export class NotFoundError extends Error {
+  statusCode: number;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotFoundError';
+    this.statusCode = 404;
   }
 }
 
-export class ConflictError extends AppError {
-  constructor(message: string = 'Ma\'lumot allaqachon mavjud') {
-    super(message, 409);
+export class ConflictError extends Error {
+  statusCode: number;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConflictError';
+    this.statusCode = 409;
   }
 }

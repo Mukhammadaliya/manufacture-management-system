@@ -351,6 +351,12 @@ export const getOrderSession = (chatId: number) => {
 // Foydalanuvchining buyurtmalarini ko'rish
 export const viewMyOrders = async (bot: TelegramBot, chatId: number, userId: string) => {
   try {
+    // YANGI: Agar buyurtma sessioni mavjud bo'lsa, uni tozalash
+    if (orderSessions.has(chatId)) {
+      orderSessions.delete(chatId);
+      logger.info(`Order session cleared for chat ${chatId} when viewing orders`);
+    }
+
     const orders = await prisma.order.findMany({
       where: {
         distributorId: userId,

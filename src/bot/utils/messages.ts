@@ -41,3 +41,30 @@ Savollaringiz bo'lsa, biz bilan bog'laning!`,
 
   ERROR: `❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.`,
 };
+
+export const getMainKeyboard = (role: string): TelegramBot.ReplyKeyboardMarkup => {
+  if (role === 'DISTRIBUTOR') {
+    return {
+      keyboard: [
+        [{ text: '📦 Yangi buyurtma' }, { text: '📋 Mening buyurtmalarim' }],
+        [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
+        [{ text: '❓ Yordam' }],
+      ],
+      resize_keyboard: true,
+    };
+  } else if (role === 'PRODUCER' || role === 'ADMIN') {
+    return {
+      keyboard: [
+        [{ text: '📊 Buyurtmalar' }, { text: '📈 Hisobotlar' }],
+        [{ text: '👥 Foydalanuvchilar' }, { text: '🔔 Xabarnomalar' }],  // <-- Yangi qator
+        [{ text: '👤 Profil' }, { text: '❓ Yordam' }],
+      ],
+      resize_keyboard: true,
+    };
+  }
+
+  return {
+    keyboard: [[{ text: '❓ Yordam' }]],
+    resize_keyboard: true,
+  };
+};

@@ -37,6 +37,7 @@ Bu tizim Real Taste of Meat kompaniyasi uchun buyurtmalarni qabul qilish, ishlab
 - **Authentication:** JWT (jsonwebtoken)
 - **Validation:** Zod
 - **Logging:** Winston
+- **Testing:** Jest + Supertest + ts-jest
 
 ## 📦 Installation
 
@@ -48,49 +49,93 @@ Bu tizim Real Taste of Meat kompaniyasi uchun buyurtmalarni qabul qilish, ishlab
 ### Setup
 
 1. Clone repository
-\`\`\`bash
+```bash
 git clone https://github.com/YOUR_USERNAME/manufacture-management-system.git
 cd manufacture-management-system
-\`\`\`
+```
 
 2. Install dependencies
-\`\`\`bash
+```bash
 npm install
-\`\`\`
+```
 
 3. Setup environment variables
-\`\`\`bash
+```bash
 cp .env.example .env
 # Edit .env with your credentials
-\`\`\`
+```
 
 4. Start PostgreSQL (Docker)
-\`\`\`bash
+```bash
 docker run --name manufacture-postgres -e POSTGRES_PASSWORD=postgres123 -e POSTGRES_DB=manufacture_db -p 5432:5432 -d postgres:15
-\`\`\`
+```
 
 5. Run migrations
-\`\`\`bash
+```bash
 npx prisma migrate dev
-\`\`\`
+```
 
 6. Seed database
-\`\`\`bash
+```bash
 npm run seed
-\`\`\`
+```
 
 7. Start development server
-\`\`\`bash
+```bash
 npm run dev
-\`\`\`
+```
+
+## 🧪 Testing
+
+### Run all tests
+```bash
+npm test
+```
+
+### Run tests with coverage
+```bash
+npm run test:coverage
+```
+
+### Run tests in watch mode
+```bash
+npm run test:watch
+```
+
+### Run only unit tests
+```bash
+npm run test:unit
+```
+
+### Run only integration tests
+```bash
+npm run test:integration
+```
+
+**Test Statistics:**
+- ✅ **66 tests** passing
+- 📊 **Coverage:** 32.58% statements, 34.73% branches
+- 📝 **Test suites:** 7 (unit: 6, integration: 1)
+- 🎯 **Controllers:** 85%+ coverage
+
+**Tested Modules:**
+- ✅ orderController (13 tests) - 83.96%
+- ✅ productController (10 tests) - 93.18%
+- ✅ authController (8 tests) - 90.9%
+- ✅ notificationController (10 tests) - 68%
+- ✅ productionController (10 tests) - 93.93%
+- ✅ jwtUtils (9 tests) - 100%
+- ✅ integration tests (6 tests)
+
+Batafsil ma'lumot uchun [TESTING.md](./TESTING.md) faylini ko'ring.
 
 ## 🚀 Deployment
 
 Production build:
-\`\`\`bash
+```bash
 npm run build
 npm start
-\`\`\`
+```
 
 ## 📝 API Documentation
 
@@ -114,8 +159,26 @@ Bot Username: `@real_taste_meat_bot` (yoki sizning bot username'ingiz)
 - `/help` - Yordam
 
 ## 📊 Project Structure
-
-See project files for detailed structure
+```
+manufacture-management-system/
+├── src/
+│   ├── __tests__/           # Test files
+│   │   ├── setup.ts
+│   │   ├── unit/
+│   │   └── integration/
+│   ├── bot/                 # Telegram bot
+│   ├── controllers/         # Route controllers
+│   ├── middleware/          # Express middleware
+│   ├── routes/              # API routes
+│   ├── utils/               # Utility functions
+│   └── index.ts             # Entry point
+├── prisma/
+│   ├── schema.prisma        # Database schema
+│   └── seed.ts              # Seed data
+├── jest.config.js           # Jest configuration
+├── TESTING.md               # Testing documentation
+└── package.json
+```
 
 ## 👥 Roles
 
@@ -135,4 +198,4 @@ For questions and support, contact the development team.
 
 **Version:** 1.0.0  
 **Status:** ✅ Production Ready (MVP)  
-**Date:** 2026-01-10
+**Date:** 2026-01-24

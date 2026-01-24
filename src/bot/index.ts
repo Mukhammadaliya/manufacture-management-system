@@ -24,14 +24,15 @@ import {
   handleChangeStatus,
   handleSetStatus,
   handleChangeQuantities,
-  handleDailySummary,
-  handleDeleteItem,
-  handleConfirmDeleteItem,
   handleDeleteOrder,
-  handleConfirmDeleteOrder,
   handleReportMenu,
   handleReportToday,
   handleReportYesterday,
+  handleDailySummary,
+  handlePendingUsers,
+  handlePendingUserDetail,
+  handleApproveUser,
+  handleRejectUser,
 } from './handlers/producerHandler';
 
 dotenv.config();
@@ -479,6 +480,12 @@ bot.on('message', async (msg) => {
         }
         break;
 
+      case '👥 Foydalanuvchilar':  // <-- Yangi
+        if (user.role === 'PRODUCER' || user.role === 'ADMIN') {
+          await handlePendingUsers(bot, chatId);
+        }
+        break;
+
       case '👤 Profil':
         await handleProfile(bot, chatId, user);
         break;
@@ -850,6 +857,62 @@ bot.on('callback_query', async (query) => {
       });
       await bot.answerCallbackQuery(query.id);
       return;
+    }
+
+    // Pending users callbacks
+    if (data === 'pending_users') {
+      if (user.role === 'PRODUCER' || user.role === 'ADMIN') {
+        try {
+          await bot.deleteMessage(chatId, messageId);
+        } catch (error) {
+          logger.debug('Could not delete message:', error);
+        }
+        await handlePendingUsers(bot, chatId);
+        await bot.answerCallbackQuery(query.id);
+        return;
+      }
+    }
+
+    if (data.startsWith('pending_user_')) {
+      if (user.role === 'PRODUCER' || user.role === 'ADMIN') {
+        const userId = data.replace('pending_user_', '');
+        try {
+          await bot.deleteMessage(chatId, messageId);
+        } catch (error) {
+          logger.debug('Could not delete message:', error);
+        }
+        await handlePendingUserDetail(bot, chatId, userId);
+        await bot.answerCallbackQuery(query.id);
+        return;
+      }
+    }
+
+    if (data.startsWith('approve_user_')) {
+      if (user.role === 'PRODUCER' || user.role === 'ADMIN') {
+        const userId = data.replace('approve_user_', '');
+        try {
+          await bot.deleteMessage(chatId, messageId);
+        } catch (error) {
+          logger.debug('Could not delete message:', error);
+        }
+        await handleApproveUser(bot, chatId, userId, user.name);
+        await bot.answerCallbackQuery(query.id);
+        return;
+      }
+    }
+
+    if (data.startsWith('reject_user_')) {
+      if (user.role === 'PRODUCER' || user.role === 'ADMIN') {
+        const userId = data.replace('reject_user_', '');
+        try {
+          await bot.deleteMessage(chatId, messageId);
+        } catch (error) {
+          logger.debug('Could not delete message:', error);
+        }
+        await handleRejectUser(bot, chatId, userId, user.name);
+        await bot.answerCallbackQuery(query.id);
+        return;
+      }
     }
 
     await bot.answerCallbackQuery(query.id);

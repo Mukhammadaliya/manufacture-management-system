@@ -729,3 +729,196 @@ export async function handleConfirmDeleteOrder(bot: TelegramBot, chatId: number,
     await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
   }
 }
+
+// Pending userlarni ko'rsatish
+export async function handlePendingUsers(bot: TelegramBot, chatId: number) {
+  try {
+    const pendingUsers = await prisma.user.findMany({
+      where: { isActive: false },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (pendingUsers.length === 0) {
+      await bot.sendMessage(chatId, '✅ Barcha foydalanuvchilar tasdiqlangan.');
+      return;
+    }
+
+    let message = '👥 **Tasdiqlanmagan Foydalanuvchilar:**\n\n';
+
+    pendingUsers.forEach((user, index) => {
+      const roleText = user.role === 'DISTRIBUTOR' ? '📦 Distribyutor' : '🔨 Ishlab chiqaruvchi';
+      message += `${index + 1}. ${roleText}\n`;
+      message += `   👤 Ism: ${user.name}\n`;
+      message += `   📞 Telefon: ${user.phone || 'Ko\'rsatilmagan'}\n`;
+      if (user.companyName) {
+        message += `   🏢 Kompaniya: ${user.companyName}\n`;
+      }
+      message += `   📅 Sana: ${formatDate(user.createdAt)}\n\n`;
+    });
+
+    // Inline keyboard - har bir user uchun tasdiqlash/rad etish
+    const keyboard: TelegramBot.InlineKeyboardButton[][] = [];
+
+    pendingUsers.forEach((user) => {
+      const roleEmoji = user.role === 'DISTRIBUTOR' ? '📦' : '🔨';
+      keyboard.push([
+        {
+          text: `${roleEmoji} ${user.name}`,
+          callback_data: `pending_user_${user.id}`,
+        },
+      ]);
+    });
+
+    keyboard.push([{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }]);
+
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: keyboard,
+      },
+    });
+  } catch (error) {
+    logger.error('Error in handlePendingUsers:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
+
+// Pending user tafsilotlari
+export async function handlePendingUserDetail(bot: TelegramBot, chatId: number, userId: string) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      await bot.sendMessage(chatId, '❌ Foydalanuvchi topilmadi.');
+      return;
+    }
+
+    const roleText = user.role === 'DISTRIBUTOR' ? '📦 Distribyutor' : '🔨 Ishlab chiqaruvchi';
+
+    let message = `👤 **Foydalanuvchi Ma'lumotlari**\n\n`;
+    message += `${roleText}\n\n`;
+    message += `👤 Ism: ${user.name}\n`;
+    message += `📞 Telefon: ${user.phone || 'Ko\'rsatilmagan'}\n`;
+    
+    if (user.companyName) {
+      message += `🏢 Kompaniya: ${user.companyName}\n`;
+    }
+    
+    message += `📅 Ro'yxatdan o'tgan: ${formatDate(user.createdAt)}\n`;
+    message += `📱 Telegram ID: ${user.telegramId}\n`;
+
+    const keyboard: TelegramBot.InlineKeyboardButton[][] = [
+      [
+        { text: '✅ Tasdiqlash', callback_data: `approve_user_${userId}` },
+        { text: '❌ Rad etish', callback_data: `reject_user_${userId}` },
+      ],
+      [{ text: '🔙 Orqaga', callback_data: 'pending_users' }],
+    ];
+
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: keyboard,
+      },
+    });
+  } catch (error) {
+    logger.error('Error in handlePendingUserDetail:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
+
+// Userni tasdiqlash
+export async function handleApproveUser(bot: TelegramBot, chatId: number, userId: string, approverName: string) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      await bot.sendMessage(chatId, '❌ Foydalanuvchi topilmadi.');
+      return;
+    }
+
+    // Faollashtirish
+    await prisma.user.update({
+      where: { id: userId },
+      data: { isActive: true },
+    });
+
+    logger.info(`User approved: ${user.telegramId} by ${approverName}`);
+
+    // Foydalanuvchiga xabar yuborish
+    try {
+      await bot.sendMessage(
+        Number(user.telegramId),
+        `✅ **Tabriklaymiz!**\n\n` +
+          `Sizning arizangiz tasdiqlandi.\n` +
+          `Endi botdan to'liq foydalanishingiz mumkin.\n\n` +
+          `Asosiy menyuni ochish uchun /start buyrug'ini yuboring.`
+      );
+    } catch (notifyError) {
+      logger.warn(`Could not notify user ${user.telegramId}:`, notifyError);
+    }
+
+    await bot.sendMessage(
+      chatId,
+      `✅ Foydalanuvchi **${user.name}** muvaffaqiyatli tasdiqlandi.`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // Pending userlar ro'yxatiga qaytish
+    await handlePendingUsers(bot, chatId);
+  } catch (error) {
+    logger.error('Error in handleApproveUser:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
+
+// Userni rad etish
+export async function handleRejectUser(bot: TelegramBot, chatId: number, userId: string, rejecterName: string) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      await bot.sendMessage(chatId, '❌ Foydalanuvchi topilmadi.');
+      return;
+    }
+
+    // O'chirish
+    await prisma.user.delete({
+      where: { id: userId },
+    });
+
+    logger.info(`User rejected: ${user.telegramId} by ${rejecterName}`);
+
+    // Foydalanuvchiga xabar yuborish
+    try {
+      await bot.sendMessage(
+        Number(user.telegramId),
+        `❌ **Afsuski**\n\n` +
+          `Sizning arizangiz rad etildi.\n\n` +
+          `Qo'shimcha ma'lumot uchun bizga murojaat qiling:\n` +
+          `📞 Aloqa: \`+998887011942\``,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (notifyError) {
+      logger.warn(`Could not notify user ${user.telegramId}:`, notifyError);
+    }
+
+    await bot.sendMessage(
+      chatId,
+      `❌ Foydalanuvchi **${user.name}** rad etildi.`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // Pending userlar ro'yxatiga qaytish
+    await handlePendingUsers(bot, chatId);
+  } catch (error) {
+    logger.error('Error in handleRejectUser:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
