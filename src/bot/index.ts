@@ -24,11 +24,14 @@ import {
   handleChangeStatus,
   handleSetStatus,
   handleChangeQuantities,
-  handleDeleteOrder,
+  handleDailySummary,
   handleReportMenu,
   handleReportToday,
   handleReportYesterday,
-  handleDailySummary,
+  handleDeleteItem,            
+  handleConfirmDeleteItem,      
+  handleDeleteOrder,            
+  handleConfirmDeleteOrder,       
   handlePendingUsers,
   handlePendingUserDetail,
   handleApproveUser,
@@ -1020,8 +1023,8 @@ function getMainKeyboard(role: string): TelegramBot.ReplyKeyboardMarkup {
     return {
       keyboard: [
         [{ text: '📊 Buyurtmalar' }, { text: '📈 Hisobotlar' }],
-        [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
-        [{ text: '❓ Yordam' }],
+        [{ text: '👥 Foydalanuvchilar' }, { text: '🔔 Xabarnomalar' }],
+        [{ text: '👤 Profil' }, { text: '❓ Yordam' }],
       ],
       resize_keyboard: true,
     };
