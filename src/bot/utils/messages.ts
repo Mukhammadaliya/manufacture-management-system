@@ -42,6 +42,8 @@ Savollaringiz bo'lsa, biz bilan bog'laning!`,
   ERROR: `❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.`,
 };
 
+import TelegramBot from 'node-telegram-bot-api';
+
 export const getMainKeyboard = (role: string): TelegramBot.ReplyKeyboardMarkup => {
   if (role === 'DISTRIBUTOR') {
     return {
