@@ -1,7 +1,9 @@
 import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import * as fs from 'fs';
 import logger from '../utils/logger';
+import { generateOrdersExcel } from './utils/excelReport';
 import { findUser, createUser, getUserInfo } from './utils/userManager';
 import {
   startNewOrder,
@@ -66,12 +68,19 @@ interface RegistrationSession {
   companyName?: string;
 }
 
+interface ExcelReportSession {
+  step: 'asking_date' | 'date_input' | 'asking_status';
+  date?: Date;
+  status?: string;
+}
+
 const quantityChangeSessions: { [key: number]: QuantityChangeSession } = {};
 const reportDateSessions: { [key: number]: boolean } = {};
 const registrationSessions: { [key: number]: RegistrationSession } = {};
 const customDateSessions: { [key: number]: { orderId: string } } = {};
 const editItemQtySessions: { [key: number]: { itemId: string; orderId: string } } = {};
 const editItemPriceSessions: { [key: number]: { itemId: string; orderId: string } } = {};
+const excelReportSessions: { [key: number]: ExcelReportSession } = {};
 
 logger.info('🤖 Telegram Bot ishga tushdi!');
 
@@ -460,6 +469,24 @@ bot.on('message', async (msg) => {
       const { orderId } = customDateSessions[chatId];
       delete customDateSessions[chatId];
       await handleSetDate(bot, chatId, orderId, text, user.id);
+      return;
+    }
+
+    // Excel report date input
+    if (excelReportSessions[chatId]?.step === 'date_input') {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(text)) {
+        await bot.sendMessage(chatId, '❌ Format: YYYY-MM-DD\nMasalan: 2026-03-15');
+        return;
+      }
+      const date = new Date(text);
+      if (isNaN(date.getTime())) {
+        await bot.sendMessage(chatId, '❌ Noto\'g\'ri sana. Qaytadan kiriting:');
+        return;
+      }
+      excelReportSessions[chatId].date = date;
+      excelReportSessions[chatId].step = 'asking_status';
+      await askExcelStatus(bot, chatId);
       return;
     }
 
@@ -1077,6 +1104,59 @@ bot.on('callback_query', async (query) => {
       return;
     }
 
+    if (data === 'report_excel_start') {
+      excelReportSessions[chatId] = { step: 'asking_date' };
+      await bot.sendMessage(chatId, '📅 Sanani filterlaysizmi?', {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✅ Ha', callback_data: 'excel_filter_date_yes' },
+            { text: '➡️ Yo\'q', callback_data: 'excel_filter_date_no' },
+          ]],
+        },
+      });
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data === 'excel_filter_date_yes') {
+      if (excelReportSessions[chatId]) {
+        excelReportSessions[chatId].step = 'date_input';
+      }
+      await bot.sendMessage(chatId, '📅 Sanani kiriting (YYYY-MM-DD):');
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data === 'excel_filter_date_no') {
+      if (excelReportSessions[chatId]) {
+        excelReportSessions[chatId].step = 'asking_status';
+      }
+      await askExcelStatus(bot, chatId);
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data === 'excel_filter_status_no') {
+      const session = excelReportSessions[chatId];
+      if (session) {
+        delete excelReportSessions[chatId];
+        await generateAndSendExcel(bot, chatId, session);
+      }
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data.startsWith('excel_filter_status_')) {
+      const status = data.replace('excel_filter_status_', '');
+      const validStatuses = ['DRAFT', 'CONFIRMED', 'DELIVERED', 'CANCELLED'];
+      if (validStatuses.includes(status)) {
+        const session = excelReportSessions[chatId];
+        if (session) {
+          session.status = status;
+          delete excelReportSessions[chatId];
+          await generateAndSendExcel(bot, chatId, session);
+        }
+      }
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+
     await bot.answerCallbackQuery(query.id);
   } catch (error) {
     logger.error('Error in callback query handler:', error);
@@ -1170,6 +1250,44 @@ function translateRole(role: string): string {
     ADMIN: 'Administrator',
   };
   return translations[role] || role;
+}
+
+async function askExcelStatus(bot: TelegramBot, chatId: number) {
+  await bot.sendMessage(chatId, '📊 Holatni filterlaysizmi?', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '⏳ Kutilmoqda', callback_data: 'excel_filter_status_DRAFT' },
+          { text: '✅ Tasdiqlangan', callback_data: 'excel_filter_status_CONFIRMED' },
+        ],
+        [
+          { text: '📦 Yetkazilgan', callback_data: 'excel_filter_status_DELIVERED' },
+          { text: '❌ Bekor qilingan', callback_data: 'excel_filter_status_CANCELLED' },
+        ],
+        [{ text: '➡️ Filtrsiz', callback_data: 'excel_filter_status_no' }],
+      ],
+    },
+  });
+}
+
+async function generateAndSendExcel(
+  bot: TelegramBot,
+  chatId: number,
+  session: ExcelReportSession
+) {
+  try {
+    await bot.sendMessage(chatId, '⏳ Hisobot tayyorlanmoqda...');
+    const filePath = await generateOrdersExcel({
+      date: session.date,
+      status: session.status,
+    });
+    await bot.sendDocument(chatId, filePath, {}, { filename: 'hisobot.xlsx' });
+    // Clean up temp file
+    try { fs.unlinkSync(filePath); } catch (e) {}
+  } catch (error) {
+    logger.error('generateAndSendExcel error:', error);
+    await bot.sendMessage(chatId, '❌ Hisobot yaratishda xatolik.');
+  }
 }
 
 export default bot;
