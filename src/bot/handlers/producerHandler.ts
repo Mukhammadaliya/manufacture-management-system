@@ -1,44 +1,81 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { PrismaClient, OrderStatus } from '@prisma/client';
 import logger from '../../utils/logger';
-import { log } from 'node:console';
+import {
+  formatDate,
+  formatOrderNumber,
+  translateStatus,
+  getStatusEmoji,
+  getTodayDate,
+  getDateOptions,
+  formatPrice,
+} from '../utils/orderHelpers';
 
 const prisma = new PrismaClient();
 
-// Buyurtmalarni filter bilan ko'rsatish
-export async function handleViewOrders(bot: TelegramBot, chatId: number, filter: 'today' | 'pending' | 'all') {
+type OrderFilter = 'today' | 'yesterday' | 'tomorrow' | 'DRAFT' | 'CONFIRMED' | 'DELIVERED' | 'CANCELLED';
+
+// ── Internal helpers ────────────────────────────────────────────────────────
+
+async function recalcOrderTotal(orderId: string, userId: string) {
+  const items = await prisma.orderItem.findMany({ where: { orderId } });
+  const total = items.reduce((sum, item) => sum + Number(item.totalPrice), 0);
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { totalAmount: total, updatedBy: userId },
+  });
+}
+
+async function notifyDistributor(
+  distributorId: string,
+  orderId: string,
+  message: string
+) {
+  await prisma.notification.create({
+    data: {
+      userId: distributorId,
+      type: 'ORDER_CHANGE',
+      title: "Buyurtma o'zgartirildi",
+      message,
+      relatedEntityType: 'order',
+      relatedEntityId: orderId,
+    },
+  });
+}
+
+// ── handleViewOrders ────────────────────────────────────────────────────────
+
+export async function handleViewOrders(
+  bot: TelegramBot,
+  chatId: number,
+  filter: OrderFilter
+) {
   try {
     let whereCondition: any = {};
 
     if (filter === 'today') {
-      // Bugungi sanani olish
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = String(today.getMonth() + 1).padStart(2, '0');
-      const day = String(today.getDate()).padStart(2, '0');
-      const todayDateStr = `${year}-${month}-${day}`;
-
+      const today = getTodayDate();
       whereCondition = {
-        orderDate: {
-          gte: new Date(todayDateStr),
-          lt: new Date(new Date(todayDateStr).getTime() + 24 * 60 * 60 * 1000),
-        },
-        status: {
-          not: 'CANCELLED',
-        },
+        orderDate: { gte: today, lt: new Date(today.getTime() + 86400000) },
+        status: { not: 'CANCELLED' },
       };
-    } else if (filter === 'pending') {
+    } else if (filter === 'yesterday') {
+      const today = getTodayDate();
+      const yesterday = new Date(today.getTime() - 86400000);
       whereCondition = {
-        status: {
-          in: ['SUBMITTED', 'CONFIRMED'],
-        },
+        orderDate: { gte: yesterday, lt: today },
+        status: { not: 'CANCELLED' },
       };
-    } else if (filter === 'all') {
+    } else if (filter === 'tomorrow') {
+      const today = getTodayDate();
+      const tomorrow = new Date(today.getTime() + 86400000);
       whereCondition = {
-        status: {
-          notIn: ['DELIVERED', 'CANCELLED'],
-        },
+        orderDate: { gte: tomorrow, lt: new Date(today.getTime() + 86400000 * 2) },
+        status: { not: 'CANCELLED' },
       };
+    } else {
+      // status filter: 'DRAFT' | 'CONFIRMED' | 'DELIVERED' | 'CANCELLED'
+      whereCondition = { status: filter };
     }
 
     const orders = await prisma.order.findMany({
@@ -46,15 +83,11 @@ export async function handleViewOrders(bot: TelegramBot, chatId: number, filter:
       include: {
         distributor: true,
         items: {
-          include: {
-            product: true,
-          },
+          include: { product: true },
         },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: 15,
+      orderBy: { orderSeq: 'desc' },
+      take: 20,
     });
 
     if (orders.length === 0) {
@@ -69,20 +102,19 @@ export async function handleViewOrders(bot: TelegramBot, chatId: number, filter:
       const totalItems = order.items.length;
       const distributorName = order.distributor.companyName || order.distributor.name;
 
-      message += `${index + 1}. ${order.orderNumber}\n`;
+      message += `${index + 1}. ${formatOrderNumber(order.orderSeq)}\n`;
       message += `   👤 ${distributorName}\n`;
       message += `   📅 ${formatDate(order.orderDate)}\n`;
       message += `   ${statusEmoji} ${translateStatus(order.status)}\n`;
       message += `   📦 ${totalItems} ta mahsulot\n\n`;
     });
 
-    // Inline keyboard - har bir buyurtma uchun "Batafsil" tugmasi
     const keyboard: TelegramBot.InlineKeyboardButton[][] = [];
-    
+
     orders.forEach((order) => {
       keyboard.push([
         {
-          text: `📋 ${order.orderNumber}`,
+          text: `📋 ${formatOrderNumber(order.orderSeq)} — ${order.distributor.companyName || order.distributor.name}`,
           callback_data: `view_order_${order.id}`,
         },
       ]);
@@ -92,28 +124,27 @@ export async function handleViewOrders(bot: TelegramBot, chatId: number, filter:
 
     await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: keyboard,
-      },
+      reply_markup: { inline_keyboard: keyboard },
     });
   } catch (error) {
     logger.error('Error in handleViewOrders:', error);
-    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko\'ring.');
+    await bot.sendMessage(chatId, "❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.");
   }
 }
 
-// Bitta buyurtmani batafsil ko'rsatish
-export async function handleViewOrderDetail(bot: TelegramBot, chatId: number, orderId: string) {
+// ── handleViewOrderDetail ───────────────────────────────────────────────────
+
+export async function handleViewOrderDetail(
+  bot: TelegramBot,
+  chatId: number,
+  orderId: string
+) {
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
         distributor: true,
-        items: {
-          include: {
-            product: true,
-          },
-        },
+        items: { include: { product: true } },
       },
     });
 
@@ -126,51 +157,56 @@ export async function handleViewOrderDetail(bot: TelegramBot, chatId: number, or
     const distributorName = order.distributor.companyName || order.distributor.name;
 
     let message = `📋 **Buyurtma tafsilotlari**\n\n`;
-    message += `🔢 Raqam: ${order.orderNumber}\n`;
+    message += `🔢 Raqam: ${formatOrderNumber(order.orderSeq)}\n`;
     message += `👤 Distribyutor: ${distributorName}\n`;
     message += `📅 Buyurtma sanasi: ${formatDate(order.orderDate)}\n`;
-    message += `📅 Yetkazish sanasi: ${formatDate(order.deliveryDate)}\n`;
     message += `${statusEmoji} Holat: ${translateStatus(order.status)}\n\n`;
 
     message += `📦 **Mahsulotlar:**\n\n`;
 
     order.items.forEach((item, index) => {
-      const quantity = item.adjustedQuantity || item.quantity;
       message += `${index + 1}. ${item.product.name}\n`;
-      message += `   📊 Miqdor: ${quantity} ${item.product.unit}\n`;
-      
-      if (item.adjustedQuantity && item.adjustedQuantity !== item.quantity) {
-        message += `   ⚠️ Dastlabki: ${item.quantity} ${item.product.unit}\n`;
-        message += `   ℹ️ Sabab: ${item.adjustmentReason || 'Sabab ko\'rsatilmagan'}\n`;
-      }
+      message += `   📊 Miqdor: ${item.quantity} ${item.product.unit}\n`;
+      message += `   💰 Narx: ${formatPrice(item.unitPrice)}\n`;
+      message += `   💵 Jami: ${formatPrice(item.totalPrice)}\n`;
       message += '\n';
     });
 
-    if (order.notes) {
-      message += `📝 Izoh: ${order.notes}\n`;
+    message += `\n💰 Jami: ${formatPrice(order.totalAmount)}`;
+
+    const keyboard: TelegramBot.InlineKeyboardButton[][] = [];
+
+    // Action buttons based on status
+    if (order.status === 'DRAFT') {
+      keyboard.push([
+        { text: '✅ Tasdiqlash', callback_data: `set_status_${orderId}_CONFIRMED` },
+        { text: '❌ Bekor qilish', callback_data: `set_status_${orderId}_CANCELLED` },
+      ]);
+    } else if (order.status === 'CONFIRMED') {
+      keyboard.push([
+        { text: '📦 Yetkazildi', callback_data: `set_status_${orderId}_DELIVERED` },
+        { text: '❌ Bekor qilish', callback_data: `set_status_${orderId}_CANCELLED` },
+      ]);
+    }
+    // DELIVERED / CANCELLED — no action buttons
+
+    // Edit button for DRAFT or CONFIRMED
+    if (order.status === 'DRAFT' || order.status === 'CONFIRMED') {
+      keyboard.push([
+        { text: '✏️ Tahrirlash', callback_data: `edit_order_menu_${orderId}` },
+      ]);
     }
 
-    // Inline keyboard
-    const keyboard: TelegramBot.InlineKeyboardButton[][] = [
-      [
-        { text: '🔄 Holatini o\'zgartirish', callback_data: `change_status_${orderId}` },
-      ],
-      [
-        { text: '📝 Miqdorlarni o\'zgartirish', callback_data: `change_quantities_${orderId}` },
-      ],
-      [
-        { text: '🗑 Buyurtmani o\'chirish', callback_data: `delete_order_${orderId}` },
-      ],
-      [
-        { text: '🔙 Orqaga', callback_data: 'view_orders_all' },
-      ],
-    ];
+    keyboard.push([
+      { text: '🗑 Buyurtmani o\'chirish', callback_data: `delete_order_${orderId}` },
+    ]);
+    keyboard.push([
+      { text: '🔙 Orqaga', callback_data: 'view_orders_today' },
+    ]);
 
     await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: keyboard,
-      },
+      reply_markup: { inline_keyboard: keyboard },
     });
   } catch (error) {
     logger.error('Error in handleViewOrderDetail:', error);
@@ -178,11 +214,99 @@ export async function handleViewOrderDetail(bot: TelegramBot, chatId: number, or
   }
 }
 
-// Buyurtma holatini o'zgartirish menyusi
-export async function handleChangeStatus(bot: TelegramBot, chatId: number, orderId: string) {
+// ── handleEditOrderMenu ─────────────────────────────────────────────────────
+
+export async function handleEditOrderMenu(
+  bot: TelegramBot,
+  chatId: number,
+  orderId: string
+) {
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+
+    if (!order) {
+      await bot.sendMessage(chatId, '❌ Buyurtma topilmadi.');
+      return;
+    }
+
+    const message =
+      `✏️ **Buyurtmani tahrirlash**\n\n` +
+      `📋 Buyurtma: ${formatOrderNumber(order.orderSeq)}\n\n` +
+      `Nimani o'zgartirmoqchisiz?`;
+
+    const keyboard: TelegramBot.InlineKeyboardButton[][] = [
+      [{ text: '📅 Sana', callback_data: `edit_date_${orderId}` }],
+      [{ text: '📊 Miqdorlar', callback_data: `edit_quantities_${orderId}` }],
+      [{ text: '💰 Narxlar', callback_data: `edit_prices_${orderId}` }],
+      [{ text: '🔙 Orqaga', callback_data: `view_order_${orderId}` }],
+    ];
+
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  } catch (error) {
+    logger.error('Error in handleEditOrderMenu:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
+
+// ── handleEditDate ──────────────────────────────────────────────────────────
+
+export async function handleEditDate(
+  bot: TelegramBot,
+  chatId: number,
+  orderId: string
+) {
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+
+    if (!order) {
+      await bot.sendMessage(chatId, '❌ Buyurtma topilmadi.');
+      return;
+    }
+
+    const message =
+      `📅 **Sanani o'zgartirish**\n\n` +
+      `📋 Buyurtma: ${formatOrderNumber(order.orderSeq)}\n` +
+      `Joriy sana: ${formatDate(order.orderDate)}\n\n` +
+      `Yangi sanani tanlang:`;
+
+    const dateOptions = getDateOptions();
+
+    const keyboard: TelegramBot.InlineKeyboardButton[][] = dateOptions.map((opt) => [
+      {
+        text: opt.label,
+        callback_data: `set_date_${orderId}_${opt.date.toISOString().slice(0, 10)}`,
+      },
+    ]);
+
+    keyboard.push([
+      { text: '📅 Boshqa sana', callback_data: `set_date_custom_${orderId}` },
+    ]);
+    keyboard.push([{ text: '🔙 Orqaga', callback_data: `edit_order_menu_${orderId}` }]);
+
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  } catch (error) {
+    logger.error('Error in handleEditDate:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
+
+// ── handleEditQuantities ────────────────────────────────────────────────────
+
+export async function handleEditQuantities(
+  bot: TelegramBot,
+  chatId: number,
+  orderId: string
+) {
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
+      include: { items: { include: { product: true } } },
     });
 
     if (!order) {
@@ -190,43 +314,279 @@ export async function handleChangeStatus(bot: TelegramBot, chatId: number, order
       return;
     }
 
+    const message =
+      `📊 **Miqdorlarni tahrirlash**\n\n` +
+      `📋 Buyurtma: ${formatOrderNumber(order.orderSeq)}\n\n` +
+      `Qaysi mahsulot miqdorini o'zgartirmoqchisiz?`;
+
+    const keyboard: TelegramBot.InlineKeyboardButton[][] = order.items.map((item) => [
+      {
+        text: `${item.product.name} (${item.quantity} ${item.product.unit})`,
+        callback_data: `edit_item_qty_${item.id}_${orderId}`,
+      },
+    ]);
+
+    keyboard.push([{ text: '🔙 Orqaga', callback_data: `edit_order_menu_${orderId}` }]);
+
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  } catch (error) {
+    logger.error('Error in handleEditQuantities:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
+
+// ── handleEditPrices ────────────────────────────────────────────────────────
+
+export async function handleEditPrices(
+  bot: TelegramBot,
+  chatId: number,
+  orderId: string
+) {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { product: true } } },
+    });
+
+    if (!order) {
+      await bot.sendMessage(chatId, '❌ Buyurtma topilmadi.');
+      return;
+    }
+
+    const message =
+      `💰 **Narxlarni tahrirlash**\n\n` +
+      `📋 Buyurtma: ${formatOrderNumber(order.orderSeq)}\n\n` +
+      `Qaysi mahsulot narxini o'zgartirmoqchisiz?`;
+
+    const keyboard: TelegramBot.InlineKeyboardButton[][] = order.items.map((item) => [
+      {
+        text: `${item.product.name} — ${formatPrice(item.unitPrice)}`,
+        callback_data: `edit_item_price_${item.id}_${orderId}`,
+      },
+    ]);
+
+    keyboard.push([{ text: '🔙 Orqaga', callback_data: `edit_order_menu_${orderId}` }]);
+
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  } catch (error) {
+    logger.error('Error in handleEditPrices:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
+
+// ── handleUpdateItemQty ─────────────────────────────────────────────────────
+
+export async function handleUpdateItemQty(
+  bot: TelegramBot,
+  chatId: number,
+  itemId: string,
+  orderId: string,
+  newQty: number,
+  userId: string
+) {
+  try {
+    const item = await prisma.orderItem.findUnique({
+      where: { id: itemId },
+      include: { product: true, order: { include: { distributor: true } } },
+    });
+
+    if (!item) {
+      await bot.sendMessage(chatId, '❌ Mahsulot topilmadi.');
+      return;
+    }
+
+    const newTotalPrice = newQty * Number(item.unitPrice);
+
+    await prisma.orderItem.update({
+      where: { id: itemId },
+      data: {
+        quantity: newQty,
+        totalPrice: newTotalPrice,
+        updatedBy: userId,
+      },
+    });
+
+    await recalcOrderTotal(orderId, userId);
+
+    await notifyDistributor(
+      item.order.distributorId,
+      orderId,
+      `${formatOrderNumber(item.order.orderSeq)} buyurtmadagi ${item.product.name} miqdori ${newQty} ${item.product.unit} ga o'zgartirildi.`
+    );
+
+    await bot.sendMessage(
+      chatId,
+      `✅ Miqdor yangilandi: ${item.product.name} — ${newQty} ${item.product.unit}`,
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🔙 Buyurtmaga qaytish', callback_data: `view_order_${orderId}` }]],
+        },
+      }
+    );
+
+    logger.info(`Item ${itemId} qty updated to ${newQty} by user ${userId}`);
+  } catch (error) {
+    logger.error('Error in handleUpdateItemQty:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
+
+// ── handleUpdateItemPrice ───────────────────────────────────────────────────
+
+export async function handleUpdateItemPrice(
+  bot: TelegramBot,
+  chatId: number,
+  itemId: string,
+  orderId: string,
+  newPrice: number,
+  userId: string
+) {
+  try {
+    const item = await prisma.orderItem.findUnique({
+      where: { id: itemId },
+      include: { product: true, order: { include: { distributor: true } } },
+    });
+
+    if (!item) {
+      await bot.sendMessage(chatId, '❌ Mahsulot topilmadi.');
+      return;
+    }
+
+    const qty = Number(item.quantity);
+    const newTotalPrice = qty * newPrice;
+
+    await prisma.orderItem.update({
+      where: { id: itemId },
+      data: {
+        unitPrice: newPrice,
+        totalPrice: newTotalPrice,
+      },
+    });
+
+    await recalcOrderTotal(orderId, userId);
+
+    await notifyDistributor(
+      item.order.distributorId,
+      orderId,
+      `${formatOrderNumber(item.order.orderSeq)} buyurtmadagi ${item.product.name} narxi ${formatPrice(newPrice)} ga o'zgartirildi.`
+    );
+
+    await bot.sendMessage(
+      chatId,
+      `✅ Narx yangilandi: ${item.product.name} — ${formatPrice(newPrice)}`,
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🔙 Buyurtmaga qaytish', callback_data: `view_order_${orderId}` }]],
+        },
+      }
+    );
+
+    logger.info(`Item ${itemId} price updated to ${newPrice} by user ${userId}`);
+  } catch (error) {
+    logger.error('Error in handleUpdateItemPrice:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
+
+// ── handleSetDate ───────────────────────────────────────────────────────────
+
+export async function handleSetDate(
+  bot: TelegramBot,
+  chatId: number,
+  orderId: string,
+  dateStr: string,
+  userId: string
+) {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { distributor: true },
+    });
+
+    if (!order) {
+      await bot.sendMessage(chatId, '❌ Buyurtma topilmadi.');
+      return;
+    }
+
+    const newDate = new Date(dateStr);
+
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { orderDate: newDate, updatedBy: userId },
+    });
+
+    await notifyDistributor(
+      order.distributorId,
+      orderId,
+      `${formatOrderNumber(order.orderSeq)} buyurtma sanasi ${formatDate(newDate)} ga o'zgartirildi.`
+    );
+
+    await bot.sendMessage(
+      chatId,
+      `✅ Sana yangilandi: ${formatDate(newDate)}`,
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🔙 Buyurtmaga qaytish', callback_data: `view_order_${orderId}` }]],
+        },
+      }
+    );
+
+    logger.info(`Order ${orderId} date updated to ${dateStr} by user ${userId}`);
+  } catch (error) {
+    logger.error('Error in handleSetDate:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+}
+
+// ── handleChangeStatus (backward compat) ───────────────────────────────────
+
+export async function handleChangeStatus(
+  bot: TelegramBot,
+  chatId: number,
+  orderId: string
+) {
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+
+    if (!order) {
+      await bot.sendMessage(chatId, '❌ Buyurtma topilmadi.');
+      return;
+    }
+
     const currentStatus = order.status;
-    const message = `🔄 **Buyurtma holati o'zgartirish**\n\n` +
-      `📋 Buyurtma: ${order.orderNumber}\n` +
+    const message =
+      `🔄 **Buyurtma holati o'zgartirish**\n\n` +
+      `📋 Buyurtma: ${formatOrderNumber(order.orderSeq)}\n` +
       `${getStatusEmoji(currentStatus)} Joriy holat: ${translateStatus(currentStatus)}\n\n` +
       `Yangi holatni tanlang:`;
 
-    // Barcha status'lar
     const statuses: OrderStatus[] = [
       'DRAFT',
-      'SUBMITTED',
       'CONFIRMED',
-      'IN_PRODUCTION',
-      'READY',
       'DELIVERED',
       'CANCELLED',
     ];
 
-    const keyboard: TelegramBot.InlineKeyboardButton[][] = [];
-
-    statuses
-      .filter(status => status !== currentStatus)
-      .forEach(status => {
-        keyboard.push([
-          {
-            text: `${getStatusEmoji(status)} ${translateStatus(status)}`,
-            callback_data: `set_status_${orderId}_${status}`,
-          },
-        ]);
-      });
+    const keyboard: TelegramBot.InlineKeyboardButton[][] = statuses
+      .filter((s) => s !== currentStatus)
+      .map((s) => [
+        {
+          text: `${getStatusEmoji(s)} ${translateStatus(s)}`,
+          callback_data: `set_status_${orderId}_${s}`,
+        },
+      ]);
 
     keyboard.push([{ text: '🔙 Orqaga', callback_data: `view_order_${orderId}` }]);
 
     await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: keyboard,
-      },
+      reply_markup: { inline_keyboard: keyboard },
     });
   } catch (error) {
     logger.error('Error in handleChangeStatus:', error);
@@ -234,7 +594,8 @@ export async function handleChangeStatus(bot: TelegramBot, chatId: number, order
   }
 }
 
-// Buyurtma holatini o'zgartirish (tasdiqlash)
+// ── handleSetStatus ─────────────────────────────────────────────────────────
+
 export async function handleSetStatus(
   bot: TelegramBot,
   chatId: number,
@@ -255,36 +616,42 @@ export async function handleSetStatus(
 
     const oldStatus = order.status;
 
-    // Holatni o'zgartirish
     await prisma.order.update({
       where: { id: orderId },
       data: { status: newStatus },
     });
 
-    // Holat tarixiga yozish
     await prisma.orderStatusHistory.create({
       data: {
-        orderId: orderId,
+        orderId,
         status: newStatus,
         changedBy: userId,
-        notes: `Admin tomonidan o'zgartirildi`,
+        notes: "Admin tomonidan o'zgartirildi",
       },
     });
 
-    // Distribyutorga notification yuborish
+    // Notify distributor via DB notification (ORDER_STATUS)
     await prisma.notification.create({
       data: {
         userId: order.distributorId,
         type: 'ORDER_STATUS',
-        title: 'Buyurtma holati o\'zgartirildi',
-        message: `${order.orderNumber} buyurtma holati ${translateStatus(oldStatus)} → ${translateStatus(newStatus)}`,
+        title: "Buyurtma holati o'zgartirildi",
+        message: `${formatOrderNumber(order.orderSeq)} buyurtma holati ${translateStatus(oldStatus)} → ${translateStatus(newStatus)}`,
         relatedEntityType: 'order',
         relatedEntityId: orderId,
       },
     });
 
-    const message = `✅ **Buyurtma holati o'zgartirildi!**\n\n` +
-      `📋 Buyurtma: ${order.orderNumber}\n` +
+    // Also call notifyDistributor for ORDER_CHANGE record
+    await notifyDistributor(
+      order.distributorId,
+      orderId,
+      `${formatOrderNumber(order.orderSeq)} buyurtmangiz holati ${getStatusEmoji(newStatus)} ${translateStatus(newStatus)} ga o'zgartirildi.`
+    );
+
+    const message =
+      `✅ **Buyurtma holati o'zgartirildi!**\n\n` +
+      `📋 Buyurtma: ${formatOrderNumber(order.orderSeq)}\n` +
       `${getStatusEmoji(oldStatus)} ${translateStatus(oldStatus)} → ${getStatusEmoji(newStatus)} ${translateStatus(newStatus)}`;
 
     await bot.sendMessage(chatId, message, {
@@ -301,88 +668,28 @@ export async function handleSetStatus(
   }
 }
 
-// Buyurtma item'larini ko'rsatish va o'zgartirish
-export async function handleChangeQuantities(bot: TelegramBot, chatId: number, orderId: string) {
+// ── handleDailySummary ──────────────────────────────────────────────────────
+
+export async function handleDailySummary(
+  bot: TelegramBot,
+  chatId: number,
+  date?: Date
+) {
   try {
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: {
-        items: {
-          include: {
-            product: true,
-          },
-        },
-      },
-    });
-
-    if (!order) {
-      await bot.sendMessage(chatId, '❌ Buyurtma topilmadi.');
-      return;
-    }
-
-    let message = `📝 **Miqdorlarni boshqarish**\n\n`;
-    message += `📋 Buyurtma: ${order.orderNumber}\n\n`;
-    message += `Qaysi mahsulot bilan ishlashni xohlaysiz?\n\n`;
-
-    order.items.forEach((item, index) => {
-      const quantity = item.adjustedQuantity || item.quantity;
-      message += `${index + 1}. ${item.product.name}\n`;
-      message += `   📊 Miqdor: ${quantity} ${item.product.unit}\n\n`;
-    });
-
-    // Inline keyboard - har bir item uchun ikkita tugma
-    const keyboard: TelegramBot.InlineKeyboardButton[][] = [];
-
-    order.items.forEach((item) => {
-      const quantity = item.adjustedQuantity || item.quantity;
-      keyboard.push([
-        {
-          text: `${item.product.name} (${quantity} ${item.product.unit})`,
-          callback_data: `change_item_${item.id}`,
-        },
-      ]);
-    });
-
-    keyboard.push([{ text: '🔙 Orqaga', callback_data: `view_order_${orderId}` }]);
-
-    await bot.sendMessage(chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: keyboard,
-      },
-    });
-  } catch (error) {
-    logger.error('Error in handleChangeQuantities:', error);
-    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
-  }
-}
-
-// Kunlik hisobot
-export async function handleDailySummary(bot: TelegramBot, chatId: number, date?: Date) {
-  try {
-    const targetDate = date || new Date();
-    const year = targetDate.getFullYear();
-    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-    const day = String(targetDate.getDate()).padStart(2, '0');
-    const dateStr = `${year}-${month}-${day}`;
+    const targetDate = date || getTodayDate();
+    const start = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate()
+    );
+    const end = new Date(start.getTime() + 86400000);
 
     const orders = await prisma.order.findMany({
       where: {
-        orderDate: {
-          gte: new Date(dateStr),
-          lt: new Date(new Date(dateStr).getTime() + 24 * 60 * 60 * 1000),
-        },
-        status: {
-          not: 'CANCELLED',
-        },
+        orderDate: { gte: start, lt: end },
+        status: { not: 'CANCELLED' },
       },
-      include: {
-        items: {
-          include: {
-            product: true,
-          },
-        },
-      },
+      include: { items: { include: { product: true } } },
     });
 
     if (orders.length === 0) {
@@ -390,12 +697,13 @@ export async function handleDailySummary(bot: TelegramBot, chatId: number, date?
       return;
     }
 
-    // Mahsulotlar bo'yicha summatsiya
-    const productSummary: { [key: string]: { name: string; code: string; unit: string; total: number; count: number } } = {};
+    const productSummary: {
+      [key: string]: { name: string; code: string; unit: string; total: number; count: number };
+    } = {};
 
-    orders.forEach(order => {
-      order.items.forEach(item => {
-        const quantity = item.adjustedQuantity || item.quantity;
+    orders.forEach((order) => {
+      order.items.forEach((item) => {
+        const quantity = item.quantity;
         const productId = item.productId;
 
         if (!productSummary[productId]) {
@@ -424,99 +732,57 @@ export async function handleDailySummary(bot: TelegramBot, chatId: number, date?
       message += `   📋 Buyurtmalar: ${item.count} ta\n\n`;
     });
 
-    await bot.sendMessage(chatId, message, {
-      parse_mode: 'Markdown',
-    });
+    await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
   } catch (error) {
     logger.error('Error in handleDailySummary:', error);
     await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
   }
 }
 
-// Hisobot uchun sana tanlash menyusi
+// ── handleReportMenu ────────────────────────────────────────────────────────
+
 export async function handleReportMenu(bot: TelegramBot, chatId: number) {
-  try {
-    const message = `📊 **Hisobotlar**\n\nQaysi kun uchun hisobot olmoqchisiz?`;
-
-    const keyboard: TelegramBot.InlineKeyboardButton[][] = [
-      [{ text: '📅 Bugun', callback_data: 'report_today' }],
-      [{ text: '📅 Kecha', callback_data: 'report_yesterday' }],
-      [{ text: '📅 Boshqa sana', callback_data: 'report_custom_date' }],
-      [{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }],
-    ];
-
-    await bot.sendMessage(chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: keyboard,
-      },
-    });
-  } catch (error) {
-    logger.error('Error in handleReportMenu:', error);
-    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
-  }
-}
-
-// Bugun uchun hisobot
-export async function handleReportToday(bot: TelegramBot, chatId: number) {
-  const today = new Date();
-  await handleDailySummary(bot, chatId, today);
-}
-
-// Kecha uchun hisobot
-export async function handleReportYesterday(bot: TelegramBot, chatId: number) {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  await handleDailySummary(bot, chatId, yesterday);
-}
-
-// Helper funksiyalar
-function getStatusEmoji(status: OrderStatus): string {
-  const emojiMap: { [key in OrderStatus]: string } = {
-    DRAFT: '📝',
-    SUBMITTED: '📤',
-    CONFIRMED: '✅',
-    IN_PRODUCTION: '🔨',
-    READY: '✔️',
-    DELIVERED: '🚚',
-    CANCELLED: '❌',
-  };
-  return emojiMap[status] || '❓';
-}
-
-function translateStatus(status: OrderStatus): string {
-  const translations: { [key in OrderStatus]: string } = {
-    DRAFT: 'Qoralama',
-    SUBMITTED: 'Yuborilgan',
-    CONFIRMED: 'Tasdiqlangan',
-    IN_PRODUCTION: 'Ishlab chiqarilmoqda',
-    READY: 'Tayyor',
-    DELIVERED: 'Yetkazilgan',
-    CANCELLED: 'Bekor qilingan',
-  };
-  return translations[status] || status;
-}
-
-function formatDate(date: Date): string {
-  return new Date(date).toLocaleDateString('uz-UZ', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
+  await bot.sendMessage(chatId, '📈 Hisobotlar:', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '📅 Bugun', callback_data: 'report_today' },
+          { text: '📅 Kecha', callback_data: 'report_yesterday' },
+        ],
+        [{ text: '📅 Boshqa sana', callback_data: 'report_custom_date' }],
+        [{ text: '📊 Kengaytirilgan (Excel)', callback_data: 'report_excel_start' }],
+        [{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }],
+      ],
+    },
   });
 }
 
-export async function handleDeleteItem(bot: TelegramBot, chatId: number, itemId: string, userId: string) {
+// ── handleReportToday / handleReportYesterday ───────────────────────────────
+
+export async function handleReportToday(bot: TelegramBot, chatId: number) {
+  await handleDailySummary(bot, chatId, getTodayDate());
+}
+
+export async function handleReportYesterday(bot: TelegramBot, chatId: number) {
+  const today = getTodayDate();
+  const yesterday = new Date(today.getTime() - 86400000);
+  await handleDailySummary(bot, chatId, yesterday);
+}
+
+// ── handleDeleteItem ────────────────────────────────────────────────────────
+
+export async function handleDeleteItem(
+  bot: TelegramBot,
+  chatId: number,
+  itemId: string,
+  userId: string
+) {
   try {
     const item = await prisma.orderItem.findUnique({
       where: { id: itemId },
       include: {
         product: true,
-        order: {
-          include: {
-            distributor: true,
-            items: true,
-          },
-        },
+        order: { include: { distributor: true, items: true } },
       },
     });
 
@@ -525,31 +791,31 @@ export async function handleDeleteItem(bot: TelegramBot, chatId: number, itemId:
       return;
     }
 
-    // Agar bu buyurtmadagi yagona item bo'lsa, o'chirishga ruxsat bermaslik
     if (item.order.items.length === 1) {
-      await bot.sendMessage(chatId, '❌ Buyurtmada kamida bitta mahsulot bo\'lishi kerak. Bu mahsulotni o\'chirib bo\'lmaydi.');
+      await bot.sendMessage(
+        chatId,
+        "❌ Buyurtmada kamida bitta mahsulot bo'lishi kerak. Bu mahsulotni o'chirib bo'lmaydi."
+      );
       return;
     }
 
     const message =
       `⚠️ **Mahsulotni o'chirish**\n\n` +
-      `📋 Buyurtma: ${item.order.orderNumber}\n` +
+      `📋 Buyurtma: ${formatOrderNumber(item.order.orderSeq)}\n` +
       `📦 Mahsulot: ${item.product.name}\n` +
-      `📊 Miqdor: ${item.adjustedQuantity || item.quantity} ${item.product.unit}\n\n` +
+      `📊 Miqdor: ${item.quantity} ${item.product.unit}\n\n` +
       `Rostdan ham bu mahsulotni o'chirmoqchimisiz?`;
 
     const keyboard: TelegramBot.InlineKeyboardButton[][] = [
       [
-        { text: '✅ Ha, o\'chirish', callback_data: `confirm_delete_item_${itemId}` },
-        { text: '❌ Yo\'q, bekor qilish', callback_data: `view_order_${item.orderId}` },
+        { text: "✅ Ha, o'chirish", callback_data: `confirm_delete_item_${itemId}` },
+        { text: "❌ Yo'q, bekor qilish", callback_data: `view_order_${item.orderId}` },
       ],
     ];
 
     await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: keyboard,
-      },
+      reply_markup: { inline_keyboard: keyboard },
     });
   } catch (error) {
     logger.error('Error in handleDeleteItem:', error);
@@ -557,19 +823,18 @@ export async function handleDeleteItem(bot: TelegramBot, chatId: number, itemId:
   }
 }
 
-// Order item'ni o'chirish (tasdiqlangan)
-export async function handleConfirmDeleteItem(bot: TelegramBot, chatId: number, itemId: string, userId: string) {
+// ── handleConfirmDeleteItem ─────────────────────────────────────────────────
+
+export async function handleConfirmDeleteItem(
+  bot: TelegramBot,
+  chatId: number,
+  itemId: string,
+  userId: string
+) {
   try {
     const item = await prisma.orderItem.findUnique({
       where: { id: itemId },
-      include: {
-        product: true,
-        order: {
-          include: {
-            distributor: true,
-          },
-        },
-      },
+      include: { product: true, order: { include: { distributor: true } } },
     });
 
     if (!item) {
@@ -578,30 +843,22 @@ export async function handleConfirmDeleteItem(bot: TelegramBot, chatId: number, 
     }
 
     const productName = item.product.name;
-    const orderNumber = item.order.orderNumber;
+    const orderSeq = item.order.orderSeq;
     const orderId = item.orderId;
 
-    // Item'ni o'chirish
-    await prisma.orderItem.delete({
-      where: { id: itemId },
-    });
+    await prisma.orderItem.delete({ where: { id: itemId } });
+    await recalcOrderTotal(orderId, userId);
 
-    // Distribyutorga notification yuborish
-    await prisma.notification.create({
-      data: {
-        userId: item.order.distributorId,
-        type: 'ORDER_CHANGE',
-        title: 'Buyurtmadan mahsulot o\'chirildi',
-        message: `${orderNumber} buyurtmadan ${productName} mahsuloti o'chirib tashlandi.`,
-        relatedEntityType: 'order',
-        relatedEntityId: orderId,
-      },
-    });
+    await notifyDistributor(
+      item.order.distributorId,
+      orderId,
+      `${formatOrderNumber(orderSeq)} buyurtmadan ${productName} mahsuloti o'chirib tashlandi.`
+    );
 
     const successMessage =
       `✅ **Mahsulot o'chirildi!**\n\n` +
       `📦 ${productName}\n` +
-      `📋 Buyurtma: ${orderNumber}\n\n` +
+      `📋 Buyurtma: ${formatOrderNumber(orderSeq)}\n\n` +
       `Distribyutorga xabar yuborildi.`;
 
     await bot.sendMessage(chatId, successMessage, {
@@ -618,19 +875,17 @@ export async function handleConfirmDeleteItem(bot: TelegramBot, chatId: number, 
   }
 }
 
-// Buyurtmani o'chirish (tasdiqlash)
-export async function handleDeleteOrder(bot: TelegramBot, chatId: number, orderId: string) {
+// ── handleDeleteOrder ───────────────────────────────────────────────────────
+
+export async function handleDeleteOrder(
+  bot: TelegramBot,
+  chatId: number,
+  orderId: string
+) {
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: {
-        distributor: true,
-        items: {
-          include: {
-            product: true,
-          },
-        },
-      },
+      include: { distributor: true, items: { include: { product: true } } },
     });
 
     if (!order) {
@@ -642,7 +897,7 @@ export async function handleDeleteOrder(bot: TelegramBot, chatId: number, orderI
 
     let message = `⚠️ **Buyurtmani o'chirish**\n\n`;
     message += `Rostdan ham bu buyurtmani butunlay o'chirmoqchimisiz?\n\n`;
-    message += `📋 Buyurtma: ${order.orderNumber}\n`;
+    message += `📋 Buyurtma: ${formatOrderNumber(order.orderSeq)}\n`;
     message += `👤 Distribyutor: ${distributorName}\n`;
     message += `${getStatusEmoji(order.status)} Holat: ${translateStatus(order.status)}\n`;
     message += `📦 Mahsulotlar: ${order.items.length} ta\n\n`;
@@ -650,16 +905,14 @@ export async function handleDeleteOrder(bot: TelegramBot, chatId: number, orderI
 
     const keyboard: TelegramBot.InlineKeyboardButton[][] = [
       [
-        { text: '✅ Ha, o\'chirish', callback_data: `confirm_delete_order_${orderId}` },
+        { text: "✅ Ha, o'chirish", callback_data: `confirm_delete_order_${orderId}` },
         { text: '❌ Bekor qilish', callback_data: `view_order_${orderId}` },
       ],
     ];
 
     await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: keyboard,
-      },
+      reply_markup: { inline_keyboard: keyboard },
     });
   } catch (error) {
     logger.error('Error in handleDeleteOrder:', error);
@@ -667,14 +920,18 @@ export async function handleDeleteOrder(bot: TelegramBot, chatId: number, orderI
   }
 }
 
-// Buyurtmani o'chirish (tasdiqlangan)
-export async function handleConfirmDeleteOrder(bot: TelegramBot, chatId: number, orderId: string, userId: string) {
+// ── handleConfirmDeleteOrder ────────────────────────────────────────────────
+
+export async function handleConfirmDeleteOrder(
+  bot: TelegramBot,
+  chatId: number,
+  orderId: string,
+  userId: string
+) {
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: {
-        distributor: true,
-      },
+      include: { distributor: true },
     });
 
     if (!order) {
@@ -682,44 +939,28 @@ export async function handleConfirmDeleteOrder(bot: TelegramBot, chatId: number,
       return;
     }
 
-    const orderNumber = order.orderNumber;
+    const orderSeq = order.orderSeq;
     const distributorId = order.distributorId;
 
-    // Order items va history'ni o'chirish (CASCADE bo'lishi kerak, lekin manual ham qilamiz)
-    await prisma.orderItem.deleteMany({
-      where: { orderId: orderId },
-    });
+    await prisma.orderItem.deleteMany({ where: { orderId } });
+    await prisma.orderStatusHistory.deleteMany({ where: { orderId } });
+    await prisma.order.delete({ where: { id: orderId } });
 
-    await prisma.orderStatusHistory.deleteMany({
-      where: { orderId: orderId },
-    });
-
-    // Buyurtmani o'chirish
-    await prisma.order.delete({
-      where: { id: orderId },
-    });
-
-    // Distribyutorga notification yuborish
-    await prisma.notification.create({
-      data: {
-        userId: distributorId,
-        type: 'ORDER_CHANGE',
-        title: 'Buyurtma o\'chirildi',
-        message: `${orderNumber} raqamli buyurtmangiz admin tomonidan o'chirib tashlandi.`,
-        relatedEntityType: 'order',
-        relatedEntityId: orderId,
-      },
-    });
+    await notifyDistributor(
+      distributorId,
+      orderId,
+      `${formatOrderNumber(orderSeq)} raqamli buyurtmangiz admin tomonidan o'chirib tashlandi.`
+    );
 
     const successMessage =
       `✅ **Buyurtma o'chirildi!**\n\n` +
-      `📋 Buyurtma: ${orderNumber}\n\n` +
+      `📋 Buyurtma: ${formatOrderNumber(orderSeq)}\n\n` +
       `Distribyutorga xabar yuborildi.`;
 
     await bot.sendMessage(chatId, successMessage, {
       parse_mode: 'Markdown',
       reply_markup: {
-        inline_keyboard: [[{ text: '🔙 Buyurtmalarga qaytish', callback_data: 'view_orders_all' }]],
+        inline_keyboard: [[{ text: '🔙 Buyurtmalarga qaytish', callback_data: 'view_orders_today' }]],
       },
     });
 
@@ -730,7 +971,8 @@ export async function handleConfirmDeleteOrder(bot: TelegramBot, chatId: number,
   }
 }
 
-// Pending userlarni ko'rsatish
+// ── handlePendingUsers ──────────────────────────────────────────────────────
+
 export async function handlePendingUsers(bot: TelegramBot, chatId: number) {
   try {
     const pendingUsers = await prisma.user.findMany({
@@ -749,33 +991,28 @@ export async function handlePendingUsers(bot: TelegramBot, chatId: number) {
       const roleText = user.role === 'DISTRIBUTOR' ? '📦 Distribyutor' : '🔨 Ishlab chiqaruvchi';
       message += `${index + 1}. ${roleText}\n`;
       message += `   👤 Ism: ${user.name}\n`;
-      message += `   📞 Telefon: ${user.phone || 'Ko\'rsatilmagan'}\n`;
+      message += `   📞 Telefon: ${user.phone || "Ko'rsatilmagan"}\n`;
       if (user.companyName) {
         message += `   🏢 Kompaniya: ${user.companyName}\n`;
       }
       message += `   📅 Sana: ${formatDate(user.createdAt)}\n\n`;
     });
 
-    // Inline keyboard - har bir user uchun tasdiqlash/rad etish
-    const keyboard: TelegramBot.InlineKeyboardButton[][] = [];
-
-    pendingUsers.forEach((user) => {
+    const keyboard: TelegramBot.InlineKeyboardButton[][] = pendingUsers.map((user) => {
       const roleEmoji = user.role === 'DISTRIBUTOR' ? '📦' : '🔨';
-      keyboard.push([
+      return [
         {
           text: `${roleEmoji} ${user.name}`,
           callback_data: `pending_user_${user.id}`,
         },
-      ]);
+      ];
     });
 
     keyboard.push([{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }]);
 
     await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: keyboard,
-      },
+      reply_markup: { inline_keyboard: keyboard },
     });
   } catch (error) {
     logger.error('Error in handlePendingUsers:', error);
@@ -783,12 +1020,15 @@ export async function handlePendingUsers(bot: TelegramBot, chatId: number) {
   }
 }
 
-// Pending user tafsilotlari
-export async function handlePendingUserDetail(bot: TelegramBot, chatId: number, userId: string) {
+// ── handlePendingUserDetail ─────────────────────────────────────────────────
+
+export async function handlePendingUserDetail(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string
+) {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
       await bot.sendMessage(chatId, '❌ Foydalanuvchi topilmadi.');
@@ -800,12 +1040,12 @@ export async function handlePendingUserDetail(bot: TelegramBot, chatId: number, 
     let message = `👤 **Foydalanuvchi Ma'lumotlari**\n\n`;
     message += `${roleText}\n\n`;
     message += `👤 Ism: ${user.name}\n`;
-    message += `📞 Telefon: ${user.phone || 'Ko\'rsatilmagan'}\n`;
-    
+    message += `📞 Telefon: ${user.phone || "Ko'rsatilmagan"}\n`;
+
     if (user.companyName) {
       message += `🏢 Kompaniya: ${user.companyName}\n`;
     }
-    
+
     message += `📅 Ro'yxatdan o'tgan: ${formatDate(user.createdAt)}\n`;
     message += `📱 Telegram ID: ${user.telegramId}\n`;
 
@@ -819,9 +1059,7 @@ export async function handlePendingUserDetail(bot: TelegramBot, chatId: number, 
 
     await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: keyboard,
-      },
+      reply_markup: { inline_keyboard: keyboard },
     });
   } catch (error) {
     logger.error('Error in handlePendingUserDetail:', error);
@@ -829,27 +1067,26 @@ export async function handlePendingUserDetail(bot: TelegramBot, chatId: number, 
   }
 }
 
-// Userni tasdiqlash
-export async function handleApproveUser(bot: TelegramBot, chatId: number, userId: string, approverName: string) {
+// ── handleApproveUser ───────────────────────────────────────────────────────
+
+export async function handleApproveUser(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  approverName: string
+) {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
       await bot.sendMessage(chatId, '❌ Foydalanuvchi topilmadi.');
       return;
     }
 
-    // Faollashtirish
-    await prisma.user.update({
-      where: { id: userId },
-      data: { isActive: true },
-    });
+    await prisma.user.update({ where: { id: userId }, data: { isActive: true } });
 
     logger.info(`User approved: ${user.telegramId} by ${approverName}`);
 
-    // Foydalanuvchiga xabar yuborish
     try {
       await bot.sendMessage(
         Number(user.telegramId),
@@ -862,13 +1099,10 @@ export async function handleApproveUser(bot: TelegramBot, chatId: number, userId
       logger.warn(`Could not notify user ${user.telegramId}:`, notifyError);
     }
 
-    await bot.sendMessage(
-      chatId,
-      `✅ Foydalanuvchi **${user.name}** muvaffaqiyatli tasdiqlandi.`,
-      { parse_mode: 'Markdown' }
-    );
+    await bot.sendMessage(chatId, `✅ Foydalanuvchi **${user.name}** muvaffaqiyatli tasdiqlandi.`, {
+      parse_mode: 'Markdown',
+    });
 
-    // Pending userlar ro'yxatiga qaytish
     await handlePendingUsers(bot, chatId);
   } catch (error) {
     logger.error('Error in handleApproveUser:', error);
@@ -876,26 +1110,26 @@ export async function handleApproveUser(bot: TelegramBot, chatId: number, userId
   }
 }
 
-// Userni rad etish
-export async function handleRejectUser(bot: TelegramBot, chatId: number, userId: string, rejecterName: string) {
+// ── handleRejectUser ────────────────────────────────────────────────────────
+
+export async function handleRejectUser(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  rejecterName: string
+) {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
       await bot.sendMessage(chatId, '❌ Foydalanuvchi topilmadi.');
       return;
     }
 
-    // O'chirish
-    await prisma.user.delete({
-      where: { id: userId },
-    });
+    await prisma.user.delete({ where: { id: userId } });
 
     logger.info(`User rejected: ${user.telegramId} by ${rejecterName}`);
 
-    // Foydalanuvchiga xabar yuborish
     try {
       await bot.sendMessage(
         Number(user.telegramId),
@@ -909,16 +1143,18 @@ export async function handleRejectUser(bot: TelegramBot, chatId: number, userId:
       logger.warn(`Could not notify user ${user.telegramId}:`, notifyError);
     }
 
-    await bot.sendMessage(
-      chatId,
-      `❌ Foydalanuvchi **${user.name}** rad etildi.`,
-      { parse_mode: 'Markdown' }
-    );
+    await bot.sendMessage(chatId, `❌ Foydalanuvchi **${user.name}** rad etildi.`, {
+      parse_mode: 'Markdown',
+    });
 
-    // Pending userlar ro'yxatiga qaytish
     await handlePendingUsers(bot, chatId);
   } catch (error) {
     logger.error('Error in handleRejectUser:', error);
     await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
   }
 }
+
+// ── Backward-compat alias ───────────────────────────────────────────────────
+
+/** @deprecated Use handleEditQuantities instead */
+export const handleChangeQuantities = handleEditQuantities;
