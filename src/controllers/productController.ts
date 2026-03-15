@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { asyncHandler } from '../middleware/errorHandler';
-import { NotFoundError, ConflictError } from '../utils/errors';
+import { NotFoundError, ConflictError, ValidationError } from '../utils/errors';
 import logger from '../utils/logger';
 
 const prisma = new PrismaClient();
@@ -57,7 +57,7 @@ export const createProduct = asyncHandler(
     // price validatsiyasi
     const parsedPrice = price !== undefined ? parseFloat(price) : 0;
     if (isNaN(parsedPrice) || parsedPrice < 0) {
-      throw new ConflictError('Narx 0 yoki undan katta bo\'lishi kerak');
+      throw new ValidationError('Narx 0 yoki undan katta bo\'lishi kerak');
     }
 
     // Kod mavjudligini tekshirish
@@ -110,7 +110,7 @@ export const updateProduct = asyncHandler(
     if (price !== undefined) {
       const parsedPrice = parseFloat(price);
       if (isNaN(parsedPrice) || parsedPrice < 0) {
-        throw new ConflictError('Narx 0 yoki undan katta bo\'lishi kerak');
+        throw new ValidationError('Narx 0 yoki undan katta bo\'lishi kerak');
       }
     }
 
