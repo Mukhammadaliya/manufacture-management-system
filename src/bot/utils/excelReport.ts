@@ -36,6 +36,11 @@ export async function generateOrdersExcel(filters: ReportFilters): Promise<strin
     orderBy: { orderSeq: 'asc' },
   });
 
+  if (orders.length === 0) {
+    // Return empty string to signal no data
+    return '';
+  }
+
   // Collect all unique products across orders
   const productMap = new Map<string, string>(); // id -> "name (unit)"
   orders.forEach((order) => {

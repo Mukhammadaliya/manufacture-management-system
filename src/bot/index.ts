@@ -479,7 +479,8 @@ bot.on('message', async (msg) => {
         await bot.sendMessage(chatId, '❌ Format: YYYY-MM-DD\nMasalan: 2026-03-15');
         return;
       }
-      const date = new Date(text);
+      const [y, m, d] = text.split('-').map(Number);
+      const date = new Date(y, m - 1, d); // local midnight, avoids UTC offset issue
       if (isNaN(date.getTime())) {
         await bot.sendMessage(chatId, '❌ Noto\'g\'ri sana. Qaytadan kiriting:');
         return;
@@ -1281,6 +1282,10 @@ async function generateAndSendExcel(
       date: session.date,
       status: session.status,
     });
+    if (!filePath) {
+      await bot.sendMessage(chatId, '📋 Ushbu filtr bo\'yicha buyurtmalar topilmadi.');
+      return;
+    }
     await bot.sendDocument(chatId, filePath, {}, { filename: 'hisobot.xlsx' });
     // Clean up temp file
     try { fs.unlinkSync(filePath); } catch (e) {}
