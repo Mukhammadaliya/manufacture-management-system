@@ -39,8 +39,8 @@ jest.mock('../../utils/errors', () => ({
   },
 }));
 
-import { 
-  getAllProducts, 
+import {
+  getAllProducts,
   getProductById,
   createProduct,
   updateProduct,
@@ -65,6 +65,7 @@ describe('Product Controller Tests', () => {
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
+      updatedBy: 'SYSTEM',
     };
 
     mockRequest = {
@@ -92,22 +93,24 @@ describe('Product Controller Tests', () => {
           name: 'Mol go\'shti kolbasa',
           code: 'KOLB-001',
           unit: 'KG' as ProductUnit,
-          baseRecipe: null,
-          productionParameters: null,
+          price: 50000,
           isActive: true,
           createdAt: new Date(),
           updatedAt: new Date(),
+          createdBy: 'user-123',
+          updatedBy: 'user-123',
         },
         {
           id: 'product-2',
           name: 'Tovuq kolbasa',
           code: 'KOLB-002',
           unit: 'KG' as ProductUnit,
-          baseRecipe: null,
-          productionParameters: null,
+          price: 35000,
           isActive: true,
           createdAt: new Date(),
           updatedAt: new Date(),
+          createdBy: 'user-123',
+          updatedBy: 'user-123',
         },
       ];
 
@@ -161,11 +164,12 @@ describe('Product Controller Tests', () => {
         name: 'Mol go\'shti kolbasa',
         code: 'KOLB-001',
         unit: 'KG' as ProductUnit,
-        baseRecipe: { ingredient1: 50, ingredient2: 30 },
-        productionParameters: { temperature: 80, time: 120 },
+        price: 50000,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
       };
 
       (mockPrisma.product.findUnique as jest.Mock).mockResolvedValue(mockProduct);
@@ -202,13 +206,12 @@ describe('Product Controller Tests', () => {
   });
 
   describe('createProduct', () => {
-    it('should create new product', async () => {
+    it('should create new product with price', async () => {
       mockRequest.body = {
         name: 'Yangi kolbasa',
         code: 'KOLB-003',
         unit: 'KG',
-        baseRecipe: { ingredient1: 50 },
-        productionParameters: { temperature: 80 },
+        price: 45000,
       };
 
       const mockCreatedProduct = {
@@ -216,11 +219,12 @@ describe('Product Controller Tests', () => {
         name: 'Yangi kolbasa',
         code: 'KOLB-003',
         unit: 'KG' as ProductUnit,
-        baseRecipe: { ingredient1: 50 },
-        productionParameters: { temperature: 80 },
+        price: 45000,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
       };
 
       (mockPrisma.product.findUnique as jest.Mock).mockResolvedValue(null);
@@ -237,8 +241,9 @@ describe('Product Controller Tests', () => {
           name: 'Yangi kolbasa',
           code: 'KOLB-003',
           unit: 'KG',
-          baseRecipe: { ingredient1: 50 },
-          productionParameters: { temperature: 80 },
+          price: 45000,
+          createdBy: 'user-123',
+          updatedBy: 'user-123',
         },
       });
 
@@ -248,6 +253,61 @@ describe('Product Controller Tests', () => {
         data: { product: mockCreatedProduct },
         message: 'Mahsulot muvaffaqiyatli yaratildi',
       });
+    });
+
+    it('should create product with default price 0 if not provided', async () => {
+      mockRequest.body = {
+        name: 'Narxsiz kolbasa',
+        code: 'KOLB-004',
+        unit: 'KG',
+      };
+
+      const mockCreatedProduct = {
+        id: 'product-4',
+        name: 'Narxsiz kolbasa',
+        code: 'KOLB-004',
+        unit: 'KG' as ProductUnit,
+        price: 0,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
+      };
+
+      (mockPrisma.product.findUnique as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.product.create as jest.Mock).mockResolvedValue(mockCreatedProduct);
+
+      await createProduct(
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockPrisma.product.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          price: 0,
+        }),
+      });
+    });
+
+    it('should throw ValidationError if price is negative', async () => {
+      mockRequest.body = {
+        name: 'Salbiy narxli mahsulot',
+        code: 'KOLB-005',
+        unit: 'KG',
+        price: -100,
+      };
+
+      (mockPrisma.product.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        createProduct(
+          mockRequest as Request,
+          mockResponse as Response,
+          mockNext
+        )
+      ).rejects.toThrow('Narx 0 yoki undan katta bo\'lishi kerak');
     });
 
     it('should throw ConflictError if code already exists', async () => {
@@ -275,23 +335,24 @@ describe('Product Controller Tests', () => {
   });
 
   describe('updateProduct', () => {
-    it('should update product', async () => {
+    it('should update product name', async () => {
       mockRequest.params = { id: 'product-1' };
       mockRequest.body = {
         name: 'Yangilangan kolbasa',
-        baseRecipe: { ingredient1: 60 },
       };
 
       const existingProduct = {
         id: 'product-1',
         code: 'KOLB-001',
         name: 'Eski nom',
+        price: 50000,
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
       };
 
       const updatedProduct = {
         ...existingProduct,
         name: 'Yangilangan kolbasa',
-        baseRecipe: { ingredient1: 60 },
       };
 
       (mockPrisma.product.findUnique as jest.Mock).mockResolvedValue(existingProduct);
@@ -307,7 +368,7 @@ describe('Product Controller Tests', () => {
         where: { id: 'product-1' },
         data: {
           name: 'Yangilangan kolbasa',
-          baseRecipe: { ingredient1: 60 },
+          updatedBy: 'user-123',
         },
       });
 
@@ -316,6 +377,75 @@ describe('Product Controller Tests', () => {
         data: { product: updatedProduct },
         message: 'Mahsulot muvaffaqiyatli yangilandi',
       });
+    });
+
+    it('should update product price', async () => {
+      mockRequest.params = { id: 'product-1' };
+      mockRequest.body = {
+        price: 60000,
+      };
+
+      const existingProduct = {
+        id: 'product-1',
+        code: 'KOLB-001',
+        name: 'Kolbasa',
+        price: 50000,
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
+      };
+
+      const updatedProduct = {
+        ...existingProduct,
+        price: 60000,
+        updatedBy: 'user-123',
+      };
+
+      (mockPrisma.product.findUnique as jest.Mock).mockResolvedValue(existingProduct);
+      (mockPrisma.product.update as jest.Mock).mockResolvedValue(updatedProduct);
+
+      await updateProduct(
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockPrisma.product.update).toHaveBeenCalledWith({
+        where: { id: 'product-1' },
+        data: {
+          price: 60000,
+          updatedBy: 'user-123',
+        },
+      });
+
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        success: true,
+        data: { product: updatedProduct },
+        message: 'Mahsulot muvaffaqiyatli yangilandi',
+      });
+    });
+
+    it('should throw ValidationError if updated price is negative', async () => {
+      mockRequest.params = { id: 'product-1' };
+      mockRequest.body = { price: -500 };
+
+      const existingProduct = {
+        id: 'product-1',
+        code: 'KOLB-001',
+        name: 'Kolbasa',
+        price: 50000,
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
+      };
+
+      (mockPrisma.product.findUnique as jest.Mock).mockResolvedValue(existingProduct);
+
+      await expect(
+        updateProduct(
+          mockRequest as Request,
+          mockResponse as Response,
+          mockNext
+        )
+      ).rejects.toThrow('Narx 0 yoki undan katta bo\'lishi kerak');
     });
 
     it('should throw NotFoundError if product not found', async () => {
@@ -335,18 +465,21 @@ describe('Product Controller Tests', () => {
   });
 
   describe('deleteProduct', () => {
-    it('should delete product by setting isActive to false', async () => {
+    it('should delete product', async () => {
       mockRequest.params = { id: 'product-1' };
 
       const existingProduct = {
         id: 'product-1',
         code: 'KOLB-001',
+        name: 'Kolbasa',
+        price: 50000,
         isActive: true,
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
       };
 
       const deletedProduct = {
         ...existingProduct,
-        isActive: false,
       };
 
       (mockPrisma.product.findUnique as jest.Mock).mockResolvedValue(existingProduct);
@@ -358,7 +491,6 @@ describe('Product Controller Tests', () => {
         mockNext
       );
 
-      // Real funksiya delete ishlatadi
       expect(mockPrisma.product.delete).toHaveBeenCalledWith({
         where: { id: 'product-1' },
       });

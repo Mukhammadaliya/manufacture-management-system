@@ -39,14 +39,13 @@ jest.mock('../../utils/errors', () => ({
   },
 }));
 
-import { 
-  getAllOrders, 
-  getOrderById, 
+import {
+  getAllOrders,
+  getOrderById,
   createOrder,
   updateOrder,
   updateOrderStatus,
   deleteOrder,
-  updateOrderItem
 } from '../../controllers/orderController';
 
 // Mock Prisma
@@ -58,7 +57,6 @@ describe('Order Controller Tests', () => {
   let mockNext: NextFunction;
 
   beforeEach(() => {
-    // User obyektini to'g'ri type bilan
     const mockUser: User = {
       id: 'user-123',
       telegramId: BigInt(123456789),
@@ -69,6 +67,7 @@ describe('Order Controller Tests', () => {
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
+      updatedBy: 'SYSTEM',
     };
 
     mockRequest = {
@@ -94,15 +93,15 @@ describe('Order Controller Tests', () => {
       const mockOrders = [
         {
           id: 'order-1',
-          orderNumber: 'ORD-20260124-0001',
+          orderSeq: 1,
           distributorId: 'user-123',
           orderDate: new Date('2026-01-24'),
-          deliveryDate: new Date('2026-01-25'),
-          status: 'SUBMITTED',
+          status: 'DRAFT',
           totalAmount: 1000,
-          notes: 'Test order',
           createdAt: new Date(),
           updatedAt: new Date(),
+          createdBy: 'user-123',
+          updatedBy: 'user-123',
           distributor: {
             id: 'user-123',
             name: 'Test User',
@@ -115,9 +114,6 @@ describe('Order Controller Tests', () => {
               orderId: 'order-1',
               productId: 'product-1',
               quantity: 10,
-              originalQuantity: 10,
-              adjustedQuantity: null,
-              adjustmentReason: null,
               unitPrice: 50,
               totalPrice: 500,
               product: {
@@ -155,7 +151,7 @@ describe('Order Controller Tests', () => {
     });
 
     it('should filter orders by status', async () => {
-      mockRequest.query = { status: 'SUBMITTED' };
+      mockRequest.query = { status: 'CONFIRMED' };
 
       (mockPrisma.order.findMany as jest.Mock).mockResolvedValue([]);
 
@@ -168,7 +164,7 @@ describe('Order Controller Tests', () => {
       expect(mockPrisma.order.findMany).toHaveBeenCalledWith({
         where: {
           distributorId: 'user-123',
-          status: 'SUBMITTED',
+          status: 'CONFIRMED',
         },
         include: expect.any(Object),
         orderBy: { createdAt: 'desc' },
@@ -209,15 +205,15 @@ describe('Order Controller Tests', () => {
 
       const mockOrder = {
         id: 'order-1',
-        orderNumber: 'ORD-20260124-0001',
+        orderSeq: 1,
         distributorId: 'user-123',
         orderDate: new Date('2026-01-24'),
-        deliveryDate: new Date('2026-01-25'),
-        status: 'SUBMITTED',
+        status: 'DRAFT',
         totalAmount: 1000,
-        notes: 'Test order',
         createdAt: new Date(),
         updatedAt: new Date(),
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
         distributor: {
           id: 'user-123',
           name: 'Test User',
@@ -252,7 +248,6 @@ describe('Order Controller Tests', () => {
 
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(null);
 
-      // Expect the function to throw
       await expect(
         getOrderById(
           mockRequest as Request,
@@ -267,35 +262,30 @@ describe('Order Controller Tests', () => {
     it('should create new order for distributor', async () => {
       mockRequest.body = {
         orderDate: '2026-01-24',
-        deliveryDate: '2026-01-25',
         items: [
           {
             productId: 'product-1',
             quantity: 10,
           },
         ],
-        notes: 'Test order',
       };
 
       const mockCreatedOrder = {
         id: 'order-1',
-        orderNumber: 'ORD-20260124-0001',
+        orderSeq: 1,
         distributorId: 'user-123',
         orderDate: new Date('2026-01-24'),
-        deliveryDate: new Date('2026-01-25'),
         status: 'DRAFT',
         totalAmount: 0,
-        notes: 'Test order',
         createdAt: new Date(),
         updatedAt: new Date(),
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
         items: [
           {
             id: 'item-1',
             productId: 'product-1',
             quantity: 10,
-            originalQuantity: 10,
-            adjustedQuantity: null,
-            adjustmentReason: null,
             unitPrice: 0,
             totalPrice: 0,
             product: {
@@ -331,11 +321,9 @@ describe('Order Controller Tests', () => {
     it('should throw ValidationError for empty items', async () => {
       mockRequest.body = {
         orderDate: '2026-01-24',
-        deliveryDate: '2026-01-25',
         items: [],
       };
 
-      // Expect the function to throw
       await expect(
         createOrder(
           mockRequest as Request,
@@ -358,32 +346,30 @@ describe('Order Controller Tests', () => {
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        updatedBy: 'SYSTEM',
       };
 
       mockRequest = {
         params: { id: 'order-1' },
         body: {
           orderDate: '2026-01-25',
-          deliveryDate: '2026-01-26',
-          notes: 'Updated notes',
         },
         user: mockUser,
       };
 
       const existingOrder = {
         id: 'order-1',
-        orderNumber: 'ORD-001',
+        orderSeq: 1,
         distributorId: 'user-123',
         status: 'DRAFT',
         orderDate: new Date('2026-01-24'),
-        deliveryDate: new Date('2026-01-25'),
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
       };
 
       const updatedOrder = {
         ...existingOrder,
         orderDate: new Date('2026-01-25'),
-        deliveryDate: new Date('2026-01-26'),
-        notes: 'Updated notes',
         items: [],
       };
 
@@ -406,7 +392,7 @@ describe('Order Controller Tests', () => {
 
     it('should throw error if order not found', async () => {
       mockRequest.params = { id: 'non-existent' };
-      mockRequest.body = { notes: 'test' };
+      mockRequest.body = { orderDate: '2026-01-25' };
 
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(null);
 
@@ -421,20 +407,21 @@ describe('Order Controller Tests', () => {
   });
 
   describe('updateOrderStatus', () => {
-    it('should update order status', async () => {
+    it('should update order status to CONFIRMED', async () => {
       mockRequest = {
         params: { id: 'order-1' },
         body: {
           status: 'CONFIRMED',
-          notes: 'Tasdiqlandi',
         },
         user: mockRequest.user,
       };
 
       const existingOrder = {
         id: 'order-1',
-        orderNumber: 'ORD-001',
-        status: 'SUBMITTED',
+        orderSeq: 1,
+        status: 'DRAFT',
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
       };
 
       const updatedOrder = {
@@ -465,6 +452,100 @@ describe('Order Controller Tests', () => {
         message: 'Buyurtma holati muvaffaqiyatli o\'zgartirildi',
       });
     });
+
+    it('should update order status to DELIVERED', async () => {
+      mockRequest = {
+        params: { id: 'order-1' },
+        body: { status: 'DELIVERED' },
+        user: mockRequest.user,
+      };
+
+      const existingOrder = {
+        id: 'order-1',
+        orderSeq: 1,
+        status: 'CONFIRMED',
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
+      };
+
+      const updatedOrder = { ...existingOrder, status: 'DELIVERED', distributor: {}, items: [] };
+
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(existingOrder);
+      (mockPrisma.order.update as jest.Mock).mockResolvedValue(updatedOrder);
+      (mockPrisma.orderStatusHistory.create as jest.Mock).mockResolvedValue({});
+
+      await updateOrderStatus(
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        success: true,
+        data: { order: updatedOrder },
+        message: 'Buyurtma holati muvaffaqiyatli o\'zgartirildi',
+      });
+    });
+
+    it('should update order status to CANCELLED', async () => {
+      mockRequest = {
+        params: { id: 'order-1' },
+        body: { status: 'CANCELLED' },
+        user: mockRequest.user,
+      };
+
+      const existingOrder = {
+        id: 'order-1',
+        orderSeq: 1,
+        status: 'DRAFT',
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
+      };
+
+      const updatedOrder = { ...existingOrder, status: 'CANCELLED', distributor: {}, items: [] };
+
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(existingOrder);
+      (mockPrisma.order.update as jest.Mock).mockResolvedValue(updatedOrder);
+      (mockPrisma.orderStatusHistory.create as jest.Mock).mockResolvedValue({});
+
+      await updateOrderStatus(
+        mockRequest as Request,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        success: true,
+        data: { order: updatedOrder },
+        message: 'Buyurtma holati muvaffaqiyatli o\'zgartirildi',
+      });
+    });
+
+    it('should throw ValidationError for invalid status', async () => {
+      mockRequest = {
+        params: { id: 'order-1' },
+        body: { status: 'SUBMITTED' }, // Not a valid status in new schema
+        user: mockRequest.user,
+      };
+
+      const existingOrder = {
+        id: 'order-1',
+        orderSeq: 1,
+        status: 'DRAFT',
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
+      };
+
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(existingOrder);
+
+      await expect(
+        updateOrderStatus(
+          mockRequest as Request,
+          mockResponse as Response,
+          mockNext
+        )
+      ).rejects.toThrow();
+    });
   });
 
   describe('deleteOrder', () => {
@@ -473,9 +554,11 @@ describe('Order Controller Tests', () => {
 
       const draftOrder = {
         id: 'order-1',
-        orderNumber: 'ORD-001',
+        orderSeq: 1,
         distributorId: 'user-123',
         status: 'DRAFT',
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
       };
 
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(draftOrder);
@@ -500,13 +583,15 @@ describe('Order Controller Tests', () => {
     it('should throw error if order not DRAFT', async () => {
       mockRequest.params = { id: 'order-1' };
 
-      const submittedOrder = {
+      const confirmedOrder = {
         id: 'order-1',
-        status: 'SUBMITTED',
+        status: 'CONFIRMED',
         distributorId: 'user-123',
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
       };
 
-      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(submittedOrder);
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(confirmedOrder);
 
       await expect(
         deleteOrder(
@@ -515,79 +600,6 @@ describe('Order Controller Tests', () => {
           mockNext
         )
       ).rejects.toThrow('Faqat DRAFT holatdagi buyurtmalarni o\'chirish mumkin');
-    });
-  });
-
-  describe('updateOrderItem', () => {
-    it('should update order item quantity', async () => {
-      mockRequest = {
-        params: {
-          orderId: 'order-1',
-          itemId: 'item-1',
-        },
-        body: {
-          adjustedQuantity: 8,
-          adjustmentReason: 'Stock limit',
-        },
-        user: mockRequest.user,
-      };
-
-      const mockOrder = {
-        id: 'order-1',
-        distributorId: 'user-123',
-        items: [
-          {
-            id: 'item-1',
-            quantity: 10,
-            productId: 'product-1',
-          },
-        ],
-        distributor: {
-          id: 'user-123',
-          name: 'Test User',
-          telegramId: BigInt(123456789),
-        },
-      };
-
-      const updatedItem = {
-        id: 'item-1',
-        quantity: 10,
-        adjustedQuantity: 8,
-        adjustmentReason: 'Stock limit',
-        product: {
-          id: 'product-1',
-          name: 'Kolbasa',
-        },
-      };
-
-      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(mockOrder);
-      (mockPrisma.orderItem.update as jest.Mock).mockResolvedValue(updatedItem);
-      (mockPrisma.notification.create as jest.Mock).mockResolvedValue({});
-
-      await updateOrderItem(
-        mockRequest as Request,
-        mockResponse as Response,
-        mockNext
-      );
-
-      expect(mockPrisma.orderItem.update).toHaveBeenCalledWith({
-        where: { id: 'item-1' },
-        data: {
-          adjustedQuantity: 8,
-          adjustmentReason: 'Stock limit',
-        },
-        include: {
-          product: true,
-        },
-      });
-
-      expect(mockPrisma.notification.create).toHaveBeenCalled();
-
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        success: true,
-        data: { item: updatedItem },
-        message: 'Buyurtma miqdori muvaffaqiyatli o\'zgartirildi',
-      });
     });
   });
 });

@@ -55,15 +55,15 @@ describe('Orders API Integration Tests', () => {
       const mockOrders = [
         {
           id: 'order-1',
-          orderNumber: 'ORD-20260124-0001',
+          orderSeq: 1,
           distributorId: 'user-123',
           orderDate: new Date('2026-01-24'),
-          deliveryDate: new Date('2026-01-25'),
-          status: 'SUBMITTED',
+          status: 'DRAFT',
           totalAmount: 1000,
-          notes: 'Test order',
           createdAt: new Date(),
           updatedAt: new Date(),
+          createdBy: 'user-123',
+          updatedBy: 'user-123',
           distributor: {
             id: 'user-123',
             name: 'Test User',
@@ -83,37 +83,67 @@ describe('Orders API Integration Tests', () => {
       expect(Array.isArray(response.body.data.orders)).toBe(true);
     });
 
-    it('should filter orders by status', async () => {
+    it('should filter orders by valid status CONFIRMED', async () => {
       (mockPrisma.order.findMany as jest.Mock).mockResolvedValue([]);
 
       const response = await request(app)
-        .get('/api/orders?status=SUBMITTED')
+        .get('/api/orders?status=CONFIRMED')
         .expect(200);
 
       expect(response.body.success).toBe(true);
       expect(mockPrisma.order.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            status: 'SUBMITTED',
+            status: 'CONFIRMED',
           }),
         })
       );
     });
+
+    it('should filter orders by valid status DELIVERED', async () => {
+      (mockPrisma.order.findMany as jest.Mock).mockResolvedValue([]);
+
+      const response = await request(app)
+        .get('/api/orders?status=DELIVERED')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
+
+    it('should filter orders by valid status CANCELLED', async () => {
+      (mockPrisma.order.findMany as jest.Mock).mockResolvedValue([]);
+
+      const response = await request(app)
+        .get('/api/orders?status=CANCELLED')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
+
+    it('should filter orders by valid status DRAFT', async () => {
+      (mockPrisma.order.findMany as jest.Mock).mockResolvedValue([]);
+
+      const response = await request(app)
+        .get('/api/orders?status=DRAFT')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
   });
 
   describe('GET /api/orders/:id', () => {
-    it('should return single order', async () => {
+    it('should return single order with orderSeq', async () => {
       const mockOrder = {
         id: 'order-1',
-        orderNumber: 'ORD-20260124-0001',
+        orderSeq: 1,
         distributorId: 'user-123',
         orderDate: new Date('2026-01-24'),
-        deliveryDate: new Date('2026-01-25'),
-        status: 'SUBMITTED',
+        status: 'DRAFT',
         totalAmount: 1000,
-        notes: 'Test order',
         createdAt: new Date(),
         updatedAt: new Date(),
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
         distributor: {
           id: 'user-123',
           name: 'Test User',
@@ -138,7 +168,6 @@ describe('Orders API Integration Tests', () => {
 
       const response = await request(app).get('/api/orders/non-existent');
 
-      // Error middleware qaytaradi
       expect(response.status).toBeGreaterThanOrEqual(400);
     });
   });
@@ -147,27 +176,27 @@ describe('Orders API Integration Tests', () => {
     it('should create new order', async () => {
       const newOrderData = {
         orderDate: '2026-01-24',
-        deliveryDate: '2026-01-25',
         items: [
           {
             productId: 'product-1',
             quantity: 10,
           },
         ],
-        notes: 'Test order',
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
       };
 
       const mockCreatedOrder = {
         id: 'order-1',
-        orderNumber: 'ORD-20260124-0001',
+        orderSeq: 1,
         distributorId: 'user-123',
         orderDate: new Date('2026-01-24'),
-        deliveryDate: new Date('2026-01-25'),
         status: 'DRAFT',
         totalAmount: 0,
-        notes: 'Test order',
         createdAt: new Date(),
         updatedAt: new Date(),
+        createdBy: 'user-123',
+        updatedBy: 'user-123',
         items: [],
       };
 
@@ -178,14 +207,8 @@ describe('Orders API Integration Tests', () => {
         .post('/api/orders')
         .send(newOrderData);
 
-      // Debug uchun response ni ko'ramiz
-      console.log('Response status:', response.status);
-      console.log('Response body:', response.body);
-
       // Agar 400 bo'lsa, validation error bo'lishi mumkin
       if (response.status === 400) {
-        // Bu holat validation middleware'dan kelayotgan bo'lishi mumkin
-        // Testni expect qilib o'zgartiramiz
         expect(response.status).toBe(400);
       } else {
         expect(response.status).toBe(201);
@@ -195,11 +218,10 @@ describe('Orders API Integration Tests', () => {
       }
     });
 
-    it('should return validation error for invalid data', async () => {
+    it('should return validation error for empty items', async () => {
       const invalidOrderData = {
         orderDate: '2026-01-24',
-        deliveryDate: '2026-01-25',
-        items: [], // Bo'sh items - validation error
+        items: [],
       };
 
       const response = await request(app)
