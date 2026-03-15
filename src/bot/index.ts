@@ -911,6 +911,20 @@ bot.on('callback_query', async (query) => {
       }
     }
 
+    if (data.startsWith('quick_confirm_')) {
+      const orderId = data.replace('quick_confirm_', '');
+      await handleSetStatus(bot, chatId, orderId, 'CONFIRMED', user.id);
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+
+    if (data.startsWith('quick_cancel_')) {
+      const orderId = data.replace('quick_cancel_', '');
+      await handleSetStatus(bot, chatId, orderId, 'CANCELLED', user.id);
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+
     await bot.answerCallbackQuery(query.id);
   } catch (error) {
     logger.error('Error in callback query handler:', error);

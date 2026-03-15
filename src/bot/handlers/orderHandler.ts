@@ -203,7 +203,7 @@ export const confirmOrder = async (bot: TelegramBot, chatId: number) => {
     await bot.sendMessage(chatId, msg, {
       reply_markup: {
         keyboard: [
-          [{ text: '📦 Yangi buyurtma' }, { text: '📋 Buyurtmalarim' }],
+          [{ text: '📦 Yangi buyurtma' }, { text: '📋 Mening buyurtmalarim' }],
           [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
           [{ text: '❓ Yordam' }],
         ],
@@ -279,7 +279,7 @@ export const cancelOrder = async (bot: TelegramBot, chatId: number) => {
   await bot.sendMessage(chatId, '❌ Buyurtma bekor qilindi.', {
     reply_markup: {
       keyboard: [
-        [{ text: '📦 Yangi buyurtma' }, { text: '📋 Buyurtmalarim' }],
+        [{ text: '📦 Yangi buyurtma' }, { text: '📋 Mening buyurtmalarim' }],
         [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
         [{ text: '❓ Yordam' }],
       ],
