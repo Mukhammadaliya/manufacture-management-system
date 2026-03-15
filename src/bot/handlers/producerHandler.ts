@@ -13,6 +13,8 @@ import {
 
 const prisma = new PrismaClient();
 
+const ONE_DAY_MS = 86_400_000;
+
 type OrderFilter = 'today' | 'yesterday' | 'tomorrow' | 'DRAFT' | 'CONFIRMED' | 'DELIVERED' | 'CANCELLED';
 
 // ── Internal helpers ────────────────────────────────────────────────────────
@@ -56,21 +58,21 @@ export async function handleViewOrders(
     if (filter === 'today') {
       const today = getTodayDate();
       whereCondition = {
-        orderDate: { gte: today, lt: new Date(today.getTime() + 86400000) },
+        orderDate: { gte: today, lt: new Date(today.getTime() + ONE_DAY_MS) },
         status: { not: 'CANCELLED' },
       };
     } else if (filter === 'yesterday') {
       const today = getTodayDate();
-      const yesterday = new Date(today.getTime() - 86400000);
+      const yesterday = new Date(today.getTime() - ONE_DAY_MS);
       whereCondition = {
         orderDate: { gte: yesterday, lt: today },
         status: { not: 'CANCELLED' },
       };
     } else if (filter === 'tomorrow') {
       const today = getTodayDate();
-      const tomorrow = new Date(today.getTime() + 86400000);
+      const tomorrow = new Date(today.getTime() + ONE_DAY_MS);
       whereCondition = {
-        orderDate: { gte: tomorrow, lt: new Date(today.getTime() + 86400000 * 2) },
+        orderDate: { gte: tomorrow, lt: new Date(today.getTime() + ONE_DAY_MS * 2) },
         status: { not: 'CANCELLED' },
       };
     } else {
@@ -466,6 +468,7 @@ export async function handleUpdateItemPrice(
       data: {
         unitPrice: newPrice,
         totalPrice: newTotalPrice,
+        updatedBy: userId,
       },
     });
 
@@ -618,7 +621,7 @@ export async function handleSetStatus(
 
     await prisma.order.update({
       where: { id: orderId },
-      data: { status: newStatus },
+      data: { status: newStatus, updatedBy: userId },
     });
 
     await prisma.orderStatusHistory.create({
@@ -682,7 +685,7 @@ export async function handleDailySummary(
       targetDate.getMonth(),
       targetDate.getDate()
     );
-    const end = new Date(start.getTime() + 86400000);
+    const end = new Date(start.getTime() + ONE_DAY_MS);
 
     const orders = await prisma.order.findMany({
       where: {
@@ -765,7 +768,7 @@ export async function handleReportToday(bot: TelegramBot, chatId: number) {
 
 export async function handleReportYesterday(bot: TelegramBot, chatId: number) {
   const today = getTodayDate();
-  const yesterday = new Date(today.getTime() - 86400000);
+  const yesterday = new Date(today.getTime() - ONE_DAY_MS);
   await handleDailySummary(bot, chatId, yesterday);
 }
 
