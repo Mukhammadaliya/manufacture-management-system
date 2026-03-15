@@ -2,16 +2,13 @@
 CREATE TYPE "UserRole" AS ENUM ('DISTRIBUTOR', 'PRODUCER', 'ADMIN');
 
 -- CreateEnum
-CREATE TYPE "OrderStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'CONFIRMED', 'IN_PRODUCTION', 'READY', 'DELIVERED', 'CANCELLED');
+CREATE TYPE "OrderStatus" AS ENUM ('DRAFT', 'CONFIRMED', 'DELIVERED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "ProductUnit" AS ENUM ('KG', 'PIECE');
 
 -- CreateEnum
-CREATE TYPE "ProductionBatchStatus" AS ENUM ('PLANNED', 'IN_PROGRESS', 'COMPLETED');
-
--- CreateEnum
-CREATE TYPE "NotificationType" AS ENUM ('ORDER_STATUS', 'ORDER_CHANGE', 'PRODUCTION_UPDATE', 'SYSTEM');
+CREATE TYPE "NotificationType" AS ENUM ('ORDER_STATUS', 'ORDER_CHANGE', 'SYSTEM');
 
 -- CreateTable
 CREATE TABLE "users" (
@@ -24,6 +21,7 @@ CREATE TABLE "users" (
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_by" TEXT NOT NULL DEFAULT 'SYSTEM',
 
     CONSTRAINT "users_pkey" PRIMARY KEY ("id")
 );
@@ -34,27 +32,31 @@ CREATE TABLE "products" (
     "name" TEXT NOT NULL,
     "code" TEXT NOT NULL,
     "unit" "ProductUnit" NOT NULL,
-    "base_recipe" JSONB,
-    "production_parameters" JSONB,
+    "price" DECIMAL(10,2) NOT NULL DEFAULT 0,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
+    "created_by" TEXT NOT NULL DEFAULT 'SYSTEM',
+    "updated_by" TEXT NOT NULL DEFAULT 'SYSTEM',
 
     CONSTRAINT "products_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateSequence
+CREATE SEQUENCE "orders_order_seq_seq";
+
 -- CreateTable
 CREATE TABLE "orders" (
     "id" TEXT NOT NULL,
-    "order_number" TEXT NOT NULL,
+    "order_seq" INTEGER NOT NULL DEFAULT nextval('"orders_order_seq_seq"'),
     "distributor_id" TEXT NOT NULL,
     "order_date" DATE NOT NULL,
-    "delivery_date" DATE NOT NULL,
     "status" "OrderStatus" NOT NULL DEFAULT 'DRAFT',
     "total_amount" DECIMAL(10,2) NOT NULL DEFAULT 0,
-    "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
+    "created_by" TEXT NOT NULL,
+    "updated_by" TEXT NOT NULL,
 
     CONSTRAINT "orders_pkey" PRIMARY KEY ("id")
 );
@@ -65,43 +67,14 @@ CREATE TABLE "order_items" (
     "order_id" TEXT NOT NULL,
     "product_id" TEXT NOT NULL,
     "quantity" DECIMAL(10,2) NOT NULL,
-    "original_quantity" DECIMAL(10,2) NOT NULL,
-    "adjusted_quantity" DECIMAL(10,2),
-    "adjustment_reason" TEXT,
     "unit_price" DECIMAL(10,2) NOT NULL,
     "total_price" DECIMAL(10,2) NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
+    "created_by" TEXT NOT NULL,
+    "updated_by" TEXT NOT NULL,
 
     CONSTRAINT "order_items_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "production_batches" (
-    "id" TEXT NOT NULL,
-    "batch_number" TEXT NOT NULL,
-    "production_date" DATE NOT NULL,
-    "status" "ProductionBatchStatus" NOT NULL DEFAULT 'PLANNED',
-    "total_capacity" DECIMAL(10,2) NOT NULL,
-    "used_capacity" DECIMAL(10,2) NOT NULL DEFAULT 0,
-    "notes" TEXT,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "production_batches_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "production_batch_items" (
-    "id" TEXT NOT NULL,
-    "batch_id" TEXT NOT NULL,
-    "product_id" TEXT NOT NULL,
-    "planned_quantity" DECIMAL(10,2) NOT NULL,
-    "actual_quantity" DECIMAL(10,2),
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "production_batch_items_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -162,10 +135,7 @@ CREATE UNIQUE INDEX "users_telegram_id_key" ON "users"("telegram_id");
 CREATE UNIQUE INDEX "products_code_key" ON "products"("code");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "orders_order_number_key" ON "orders"("order_number");
-
--- CreateIndex
-CREATE UNIQUE INDEX "production_batches_batch_number_key" ON "production_batches"("batch_number");
+CREATE UNIQUE INDEX "orders_order_seq_key" ON "orders"("order_seq");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "system_settings_key_key" ON "system_settings"("key");
@@ -178,12 +148,6 @@ ALTER TABLE "order_items" ADD CONSTRAINT "order_items_order_id_fkey" FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE "order_items" ADD CONSTRAINT "order_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "production_batch_items" ADD CONSTRAINT "production_batch_items_batch_id_fkey" FOREIGN KEY ("batch_id") REFERENCES "production_batches"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "production_batch_items" ADD CONSTRAINT "production_batch_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "order_status_history" ADD CONSTRAINT "order_status_history_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE CASCADE ON UPDATE CASCADE;
