@@ -6,15 +6,13 @@ import {
   updateOrder,
   updateOrderStatus,
   deleteOrder,
-  updateOrderItem,
-  getOrderItems, 
+  getOrderItems,
 } from '../controllers/orderController';
 import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import {
-  createOrderSchema, 
+  createOrderSchema,
   updateOrderStatusSchema,
-  updateOrderItemSchema
 } from '../utils/validators';
 
 const router = Router();
@@ -51,13 +49,5 @@ router.delete('/:id', authenticate, deleteOrder);
 // GET /api/orders/:orderId/items - Buyurtma item'larini olish
 router.get('/:orderId/items', authenticate, getOrderItems);
 
-// PATCH /api/orders/:orderId/items/:itemId - Order item miqdorini o'zgartirish
-router.patch(
-  '/:orderId/items/:itemId',
-  authenticate,
-  authorize('ADMIN', 'PRODUCER'),
-  validate(updateOrderItemSchema),
-  updateOrderItem
-);
 
 export default router;

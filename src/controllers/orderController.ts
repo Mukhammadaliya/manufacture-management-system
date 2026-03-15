@@ -6,15 +6,12 @@ import logger from '../utils/logger';
 
 const prisma = new PrismaClient();
 
-// Buyurtma raqami generatsiya qilish
-const generateOrderNumber = (): string => {
-  const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-  return `ORD-${year}${month}${day}-${random}`;
-};
+const VALID_STATUSES: OrderStatus[] = [
+  OrderStatus.DRAFT,
+  OrderStatus.CONFIRMED,
+  OrderStatus.DELIVERED,
+  OrderStatus.CANCELLED,
+];
 
 // Barcha buyurtmalarni olish
 export const getAllOrders = asyncHandler(
@@ -136,7 +133,7 @@ export const getOrderById = asyncHandler(
 // Yangi buyurtma yaratish
 export const createOrder = asyncHandler(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { orderDate, deliveryDate, items, notes } = req.body;
+    const { orderDate, items } = req.body;
     const user = req.user!;
 
     // Distribyutor faqat o'zi uchun buyurtma yarata oladi
@@ -150,25 +147,22 @@ export const createOrder = asyncHandler(
       throw new ValidationError('Kamida bitta mahsulot bo\'lishi kerak');
     }
 
-    // Buyurtma raqamini yaratish
-    const orderNumber = generateOrderNumber();
-
     // Buyurtmani yaratish
     const order = await prisma.order.create({
       data: {
-        orderNumber,
         distributorId,
-        orderDate: new Date(orderDate),
-        deliveryDate: new Date(deliveryDate),
+        orderDate: orderDate ? new Date(orderDate) : new Date(),
         status: OrderStatus.DRAFT,
-        notes,
+        createdBy: user.id,
+        updatedBy: user.id,
         items: {
           create: items.map((item: any) => ({
             productId: item.productId,
             quantity: item.quantity,
-            originalQuantity: item.quantity,
-            unitPrice: 0, // Keyinchalik qo'shiladi
+            unitPrice: 0,
             totalPrice: 0,
+            createdBy: user.id,
+            updatedBy: user.id,
           })),
         },
       },
@@ -191,7 +185,7 @@ export const createOrder = asyncHandler(
       },
     });
 
-    logger.info(`Order created: ${order.orderNumber} by ${user.name}`);
+    logger.info(`Order created: #${order.orderSeq} by ${user.name}`);
 
     res.status(201).json({
       success: true,
@@ -205,7 +199,7 @@ export const createOrder = asyncHandler(
 export const updateOrder = asyncHandler(
   async (req: Request, res: Response, next: NextFunction) => {
     const { id } = req.params;
-    const { orderDate, deliveryDate, notes, items } = req.body;
+    const { orderDate, items } = req.body;
     const user = req.user!;
 
     const existingOrder = await prisma.order.findUnique({
@@ -216,13 +210,13 @@ export const updateOrder = asyncHandler(
       throw new NotFoundError('Buyurtma topilmadi');
     }
 
-    // Distribyutor faqat DRAFT va SUBMITTED holatdagi buyurtmani o'zgartira oladi
+    // Distribyutor faqat DRAFT holatdagi buyurtmani o'zgartira oladi
     if (user.role === 'DISTRIBUTOR') {
       if (existingOrder.distributorId !== user.id) {
         throw new AuthorizationError('Bu buyurtmani tahrirlashga ruxsatingiz yo\'q');
       }
-      if (!['DRAFT', 'SUBMITTED'].includes(existingOrder.status)) {
-        throw new ValidationError('Faqat DRAFT va SUBMITTED holatdagi buyurtmalarni tahrirlash mumkin');
+      if (existingOrder.status !== 'DRAFT') {
+        throw new ValidationError('Faqat DRAFT holatdagi buyurtmalarni tahrirlash mumkin');
       }
     }
 
@@ -231,8 +225,7 @@ export const updateOrder = asyncHandler(
       where: { id },
       data: {
         ...(orderDate && { orderDate: new Date(orderDate) }),
-        ...(deliveryDate && { deliveryDate: new Date(deliveryDate) }),
-        ...(notes && { notes }),
+        updatedBy: user.id,
       },
       include: {
         items: {
@@ -243,7 +236,7 @@ export const updateOrder = asyncHandler(
       },
     });
 
-    logger.info(`Order updated: ${order.orderNumber} by ${user.name}`);
+    logger.info(`Order updated: #${order.orderSeq} by ${user.name}`);
 
     res.json({
       success: true,
@@ -260,6 +253,12 @@ export const updateOrderStatus = asyncHandler(
     const { status, notes } = req.body;
     const user = req.user!;
 
+    if (!VALID_STATUSES.includes(status as OrderStatus)) {
+      throw new ValidationError(
+        `Noto'g'ri holat. Faqat ${VALID_STATUSES.join(', ')} holatlari mumkin`
+      );
+    }
+
     const order = await prisma.order.findUnique({
       where: { id },
     });
@@ -271,7 +270,10 @@ export const updateOrderStatus = asyncHandler(
     // Buyurtma holatini yangilash
     const updatedOrder = await prisma.order.update({
       where: { id },
-      data: { status },
+      data: {
+        status: status as OrderStatus,
+        updatedBy: user.id,
+      },
       include: {
         distributor: true,
         items: {
@@ -286,13 +288,13 @@ export const updateOrderStatus = asyncHandler(
     await prisma.orderStatusHistory.create({
       data: {
         orderId: id,
-        status,
+        status: status as OrderStatus,
         changedBy: user.id,
         notes: notes || `Holat ${status}ga o'zgartirildi`,
       },
     });
 
-    logger.info(`Order status changed: ${order.orderNumber} to ${status} by ${user.name}`);
+    logger.info(`Order status changed: #${order.orderSeq} to ${status} by ${user.name}`);
 
     res.json({
       success: true,
@@ -330,78 +332,11 @@ export const deleteOrder = asyncHandler(
       where: { id },
     });
 
-    logger.info(`Order deleted: ${order.orderNumber} by ${user.name}`);
+    logger.info(`Order deleted: #${order.orderSeq} by ${user.name}`);
 
     res.json({
       success: true,
       message: 'Buyurtma muvaffaqiyatli o\'chirildi',
-    });
-  }
-);
-
-// Order item miqdorini o'zgartirish (Producer/Admin)
-export const updateOrderItem = asyncHandler(
-  async (req: Request, res: Response, next: NextFunction) => {
-    const { orderId, itemId } = req.params;
-    const { adjustedQuantity, adjustmentReason } = req.body;
-    const user = req.user!;
-
-    // Order va item'ni tekshirish
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: {
-        items: true,
-        distributor: {
-          select: {
-            id: true,
-            name: true,
-            telegramId: true,
-          },
-        },
-      },
-    });
-
-    if (!order) {
-      throw new NotFoundError('Buyurtma topilmadi');
-    }
-
-    const item = order.items.find((i) => i.id === itemId);
-    if (!item) {
-      throw new NotFoundError('Buyurtma item topilmadi');
-    }
-
-    // Order item'ni yangilash
-    const updatedItem = await prisma.orderItem.update({
-      where: { id: itemId },
-      data: {
-        adjustedQuantity,
-        adjustmentReason,
-      },
-      include: {
-        product: true,
-      },
-    });
-
-    // Notification yaratish (Distributor uchun)
-    await prisma.notification.create({
-      data: {
-        userId: order.distributorId,
-        type: 'ORDER_CHANGE',
-        title: 'Buyurtma miqdori o\'zgartirildi',
-        message: `${updatedItem.product.name} mahsuloti miqdori ${item.quantity} dan ${adjustedQuantity} ga o'zgartirildi. Sabab: ${adjustmentReason}`,
-        relatedEntityType: 'order',
-        relatedEntityId: orderId,
-      },
-    });
-
-    logger.info(
-      `Order item updated: Order ${order.orderNumber}, Item ${updatedItem.product.name}, Quantity ${item.quantity} -> ${adjustedQuantity}`
-    );
-
-    res.json({
-      success: true,
-      data: { item: updatedItem },
-      message: 'Buyurtma miqdori muvaffaqiyatli o\'zgartirildi',
     });
   }
 );

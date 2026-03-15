@@ -8,7 +8,6 @@ import './bot';
 import authRoutes from './routes/authRoutes';
 import productRoutes from './routes/productRoutes';
 import orderRoutes from './routes/orderRoutes';
-import productionRoutes from './routes/productionRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 
 dotenv.config();
@@ -40,7 +39,6 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
-app.use('/api/production', productionRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 // 404 handler

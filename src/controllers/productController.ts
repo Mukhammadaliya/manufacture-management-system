@@ -51,7 +51,14 @@ export const getProductById = asyncHandler(
 // Yangi mahsulot yaratish
 export const createProduct = asyncHandler(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { name, code, unit, baseRecipe, productionParameters } = req.body;
+    const { name, code, unit, price } = req.body;
+    const user = req.user!;
+
+    // price validatsiyasi
+    const parsedPrice = price !== undefined ? parseFloat(price) : 0;
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      throw new ConflictError('Narx 0 yoki undan katta bo\'lishi kerak');
+    }
 
     // Kod mavjudligini tekshirish
     const existingProduct = await prisma.product.findUnique({
@@ -67,8 +74,9 @@ export const createProduct = asyncHandler(
         name,
         code,
         unit,
-        baseRecipe,
-        productionParameters,
+        price: parsedPrice,
+        createdBy: user.id,
+        updatedBy: user.id,
       },
     });
 
@@ -86,7 +94,8 @@ export const createProduct = asyncHandler(
 export const updateProduct = asyncHandler(
   async (req: Request, res: Response, next: NextFunction) => {
     const { id } = req.params;
-    const { name, code, unit, baseRecipe, productionParameters, isActive } = req.body;
+    const { name, code, unit, price, isActive } = req.body;
+    const user = req.user!;
 
     // Mahsulot mavjudligini tekshirish
     const existingProduct = await prisma.product.findUnique({
@@ -95,6 +104,14 @@ export const updateProduct = asyncHandler(
 
     if (!existingProduct) {
       throw new NotFoundError('Mahsulot topilmadi');
+    }
+
+    // price validatsiyasi
+    if (price !== undefined) {
+      const parsedPrice = parseFloat(price);
+      if (isNaN(parsedPrice) || parsedPrice < 0) {
+        throw new ConflictError('Narx 0 yoki undan katta bo\'lishi kerak');
+      }
     }
 
     // Agar kod o'zgartirilyotgan bo'lsa, boshqa mahsulotda ishlatilmaganligini tekshirish
@@ -114,9 +131,9 @@ export const updateProduct = asyncHandler(
         ...(name && { name }),
         ...(code && { code }),
         ...(unit && { unit }),
-        ...(baseRecipe && { baseRecipe }),
-        ...(productionParameters && { productionParameters }),
+        ...(price !== undefined && { price: parseFloat(price) }),
         ...(isActive !== undefined && { isActive }),
+        updatedBy: user.id,
       },
     });
 
