@@ -76,13 +76,14 @@ model Order {
   totalAmount   Decimal     @default(0) @map("total_amount") @db.Decimal(10, 2)
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
-  createdBy     String      @map("created_by")
-  updatedBy     String      @map("updated_by")
+  createdBy     String      @default("SYSTEM") @map("created_by")
+  updatedBy     String      @default("SYSTEM") @map("updated_by")
 
   distributor   User                 @relation(fields: [distributorId], references: [id])
   items         OrderItem[]
   statusHistory OrderStatusHistory[]
 
+  @@index([distributorId])
   @@map("orders")
 }
 
@@ -95,19 +96,21 @@ model OrderItem {
   totalPrice Decimal  @map("total_price") @db.Decimal(10, 2)
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
-  createdBy  String   @map("created_by")
-  updatedBy  String   @map("updated_by")
+  createdBy  String   @default("SYSTEM") @map("created_by")
+  updatedBy  String   @default("SYSTEM") @map("updated_by")
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
 
+  @@index([orderId])
+  @@index([productId])
   @@map("order_items")
 }
 
 model OrderStatusHistory {
   id        String   @id @default(uuid())
   orderId   String   @map("order_id")
-  status    String
+  status    OrderStatus
   changedBy String   @map("changed_by")
   notes     String?
   createdAt DateTime @default(now()) @map("created_at")
@@ -115,6 +118,8 @@ model OrderStatusHistory {
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   user  User  @relation(fields: [changedBy], references: [id])
 
+  @@index([orderId])
+  @@index([changedBy])
   @@map("order_status_history")
 }
 
@@ -131,6 +136,8 @@ model Notification {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+  @@index([isRead])
   @@map("notifications")
 }
 
