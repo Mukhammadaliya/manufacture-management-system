@@ -7,7 +7,6 @@ import {
   startNewOrder,
   selectProduct,
   enterQuantity,
-  enterDate,
   confirmOrder,
   cancelOrder,
   getOrderSession,
@@ -271,12 +270,6 @@ bot.on('message', async (msg) => {
         return;
       }
       await enterQuantity(bot, chatId, quantity);
-      return;
-    }
-
-    // Order session - sana kiritish
-    if (session && session.step === 'selecting_dates') {
-      await enterDate(bot, chatId, text);
       return;
     }
 
