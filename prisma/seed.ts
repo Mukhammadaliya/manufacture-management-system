@@ -5,6 +5,14 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Seed data yaratilmoqda...');
 
+  // Cleanup — re-run safe
+  console.log('🧹 Eski ma\'lumotlar tozalanmoqda...');
+  await prisma.orderStatusHistory.deleteMany({});
+  await prisma.orderItem.deleteMany({});
+  await prisma.order.deleteMany({});
+  await prisma.notification.deleteMany({});
+  console.log('✅ Tozalandi');
+
   // 1. Foydalanuvchilarni yaratish
   console.log('Foydalanuvchilar yaratilmoqda...');
 
