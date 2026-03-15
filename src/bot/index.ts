@@ -27,14 +27,21 @@ import {
   handleReportMenu,
   handleReportToday,
   handleReportYesterday,
-  handleDeleteItem,            
-  handleConfirmDeleteItem,      
-  handleDeleteOrder,            
-  handleConfirmDeleteOrder,       
+  handleDeleteItem,
+  handleConfirmDeleteItem,
+  handleDeleteOrder,
+  handleConfirmDeleteOrder,
   handlePendingUsers,
   handlePendingUserDetail,
   handleApproveUser,
   handleRejectUser,
+  handleEditOrderMenu,
+  handleEditDate,
+  handleEditQuantities,
+  handleEditPrices,
+  handleUpdateItemQty,
+  handleUpdateItemPrice,
+  handleSetDate,
 } from './handlers/producerHandler';
 
 dotenv.config();
@@ -62,6 +69,9 @@ interface RegistrationSession {
 const quantityChangeSessions: { [key: number]: QuantityChangeSession } = {};
 const reportDateSessions: { [key: number]: boolean } = {};
 const registrationSessions: { [key: number]: RegistrationSession } = {};
+const customDateSessions: { [key: number]: { orderId: string } } = {};
+const editItemQtySessions: { [key: number]: { itemId: string; orderId: string } } = {};
+const editItemPriceSessions: { [key: number]: { itemId: string; orderId: string } } = {};
 
 logger.info('🤖 Telegram Bot ishga tushdi!');
 
@@ -308,7 +318,7 @@ bot.on('message', async (msg) => {
           `⚠️ **Mahsulotni o'chirish**\n\n` +
           `Siz 0 miqdor kiritdingiz. Bu mahsulotni buyurtmadan o'chirmoqchimisiz?\n\n` +
           `📦 Mahsulot: ${item.product.name}\n` +
-          `📋 Buyurtma: ${item.order.orderNumber}`;
+          `📋 Buyurtma: #${item.order.orderSeq}`;
 
         quantityChangeSessions[chatId] = {
           ...qtySession,
@@ -345,7 +355,7 @@ bot.on('message', async (msg) => {
       const message =
         `📝 **Miqdor o'zgarishi**\n\n` +
         `📦 Mahsulot: ${item.product.name}\n` +
-        `📊 Eski miqdor: ${item.adjustedQuantity || item.quantity} ${item.product.unit}\n` +
+        `📊 Eski miqdor: ${item.quantity} ${item.product.unit}\n` +
         `📊 Yangi miqdor: ${newQuantity} ${item.product.unit}\n\n` +
         `O'zgartirish sababini kiriting:`;
 
@@ -382,8 +392,7 @@ bot.on('message', async (msg) => {
       await prisma.orderItem.update({
         where: { id: qtySession.itemId },
         data: {
-          adjustedQuantity: newQuantity,
-          adjustmentReason: reason,
+          quantity: newQuantity,
         },
       });
 
@@ -392,7 +401,7 @@ bot.on('message', async (msg) => {
           userId: item.order.distributorId,
           type: 'ORDER_CHANGE',
           title: 'Buyurtma miqdori o\'zgartirildi',
-          message: `${item.order.orderNumber} buyurtmadagi ${item.product.name} miqdori ${item.adjustedQuantity || item.quantity} dan ${newQuantity} ga o'zgartirildi.\n\nSabab: ${reason}`,
+          message: `#${item.order.orderSeq} buyurtmadagi ${item.product.name} miqdori ${item.quantity} dan ${newQuantity} ga o'zgartirildi.\n\nSabab: ${reason}`,
           relatedEntityType: 'order',
           relatedEntityId: item.orderId,
         },
@@ -420,7 +429,7 @@ bot.on('message', async (msg) => {
     // Report date input
     if (reportDateSessions[chatId]) {
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      
+
       if (!dateRegex.test(text)) {
         await bot.sendMessage(
           chatId,
@@ -430,7 +439,7 @@ bot.on('message', async (msg) => {
       }
 
       const customDate = new Date(text);
-      
+
       if (isNaN(customDate.getTime())) {
         await bot.sendMessage(chatId, '❌ Noto\'g\'ri sana. Iltimos, qaytadan kiriting:');
         return;
@@ -438,6 +447,45 @@ bot.on('message', async (msg) => {
 
       delete reportDateSessions[chatId];
       await handleDailySummary(bot, chatId, customDate);
+      return;
+    }
+
+    // Custom date session (producer editing order date)
+    if (customDateSessions[chatId]) {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(text)) {
+        await bot.sendMessage(chatId, '❌ Format: YYYY-MM-DD\nMasalan: 2026-03-20');
+        return;
+      }
+      const { orderId } = customDateSessions[chatId];
+      delete customDateSessions[chatId];
+      await handleSetDate(bot, chatId, orderId, text, user.id);
+      return;
+    }
+
+    // Edit item quantity session
+    if (editItemQtySessions[chatId]) {
+      const qty = parseFloat(text);
+      if (isNaN(qty) || qty <= 0) {
+        await bot.sendMessage(chatId, '❌ To\'g\'ri musbat raqam kiriting.');
+        return;
+      }
+      const { itemId, orderId } = editItemQtySessions[chatId];
+      delete editItemQtySessions[chatId];
+      await handleUpdateItemQty(bot, chatId, itemId, orderId, qty, user.id);
+      return;
+    }
+
+    // Edit item price session
+    if (editItemPriceSessions[chatId]) {
+      const price = parseFloat(text);
+      if (isNaN(price) || price < 0) {
+        await bot.sendMessage(chatId, '❌ To\'g\'ri narx kiriting (0 yoki undan katta).');
+        return;
+      }
+      const { itemId, orderId } = editItemPriceSessions[chatId];
+      delete editItemPriceSessions[chatId];
+      await handleUpdateItemPrice(bot, chatId, itemId, orderId, price, user.id);
       return;
     }
 
@@ -640,24 +688,39 @@ bot.on('callback_query', async (query) => {
       return;
     }
 
-    if (data === 'view_orders_pending') {
-      try {
-        await bot.deleteMessage(chatId, messageId);
-      } catch (error) {
-        logger.debug('Could not delete message:', error);
-      }
-      await handleViewOrders(bot, chatId, 'pending');
+    if (data === 'view_orders_yesterday') {
+      try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
+      await handleViewOrders(bot, chatId, 'yesterday');
       await bot.answerCallbackQuery(query.id);
       return;
     }
-
-    if (data === 'view_orders_all') {
-      try {
-        await bot.deleteMessage(chatId, messageId);
-      } catch (error) {
-        logger.debug('Could not delete message:', error);
-      }
-      await handleViewOrders(bot, chatId, 'all');
+    if (data === 'view_orders_tomorrow') {
+      try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
+      await handleViewOrders(bot, chatId, 'tomorrow');
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data === 'view_orders_DRAFT') {
+      try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
+      await handleViewOrders(bot, chatId, 'DRAFT');
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data === 'view_orders_CONFIRMED') {
+      try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
+      await handleViewOrders(bot, chatId, 'CONFIRMED');
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data === 'view_orders_DELIVERED') {
+      try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
+      await handleViewOrders(bot, chatId, 'DELIVERED');
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data === 'view_orders_CANCELLED') {
+      try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
+      await handleViewOrders(bot, chatId, 'CANCELLED');
       await bot.answerCallbackQuery(query.id);
       return;
     }
@@ -699,6 +762,84 @@ bot.on('callback_query', async (query) => {
       return;
     }
 
+    if (data.startsWith('edit_order_')) {
+      const orderId = data.replace('edit_order_', '');
+      await handleEditOrderMenu(bot, chatId, orderId);
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data.startsWith('edit_date_')) {
+      const orderId = data.replace('edit_date_', '');
+      await handleEditDate(bot, chatId, orderId);
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data.startsWith('edit_quantities_')) {
+      const orderId = data.replace('edit_quantities_', '');
+      await handleEditQuantities(bot, chatId, orderId);
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data.startsWith('edit_prices_')) {
+      const orderId = data.replace('edit_prices_', '');
+      await handleEditPrices(bot, chatId, orderId);
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+
+    // set_date_{orderId}_{YYYY-MM-DD}
+    if (data.startsWith('set_date_') && !data.startsWith('set_date_custom_')) {
+      const withoutPrefix = data.replace('set_date_', '');
+      const dateStr = withoutPrefix.slice(-10); // last 10 chars = YYYY-MM-DD
+      const orderId = withoutPrefix.slice(0, -11); // everything before _YYYY-MM-DD
+      await handleSetDate(bot, chatId, orderId, dateStr, user.id);
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data.startsWith('set_date_custom_')) {
+      const orderId = data.replace('set_date_custom_', '');
+      customDateSessions[chatId] = { orderId };
+      await bot.sendMessage(chatId, '📅 Sanani kiriting (YYYY-MM-DD):\nMasalan: 2026-03-20');
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+
+    if (data.startsWith('edit_item_qty_')) {
+      // callback data may be edit_item_qty_{itemId} or edit_item_qty_{itemId}_{orderId}
+      const withoutPrefix = data.replace('edit_item_qty_', '');
+      // UUID is 36 chars: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      const itemId = withoutPrefix.length >= 36 ? withoutPrefix.slice(0, 36) : withoutPrefix;
+      const item = await prisma.orderItem.findUnique({
+        where: { id: itemId },
+        include: { product: true },
+      });
+      if (item) {
+        editItemQtySessions[chatId] = { itemId, orderId: item.orderId };
+        await bot.sendMessage(chatId,
+          `📦 ${item.product.name}\nJoriy: ${item.quantity} ${item.product.unit}\n\nYangi miqdor kiriting:`
+        );
+      }
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+    if (data.startsWith('edit_item_price_')) {
+      // callback data may be edit_item_price_{itemId} or edit_item_price_{itemId}_{orderId}
+      const withoutPrefix = data.replace('edit_item_price_', '');
+      const itemId = withoutPrefix.length >= 36 ? withoutPrefix.slice(0, 36) : withoutPrefix;
+      const item = await prisma.orderItem.findUnique({
+        where: { id: itemId },
+        include: { product: true },
+      });
+      if (item) {
+        editItemPriceSessions[chatId] = { itemId, orderId: item.orderId };
+        await bot.sendMessage(chatId,
+          `💰 ${item.product.name}\nJoriy narx: ${Number(item.unitPrice).toLocaleString('uz-UZ')} so'm\n\nYangi narx kiriting (so'm):`
+        );
+      }
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+
     if (data.startsWith('delete_order_')) {
       const orderId = data.replace('delete_order_', '');
       await handleDeleteOrder(bot, chatId, orderId);
@@ -715,7 +856,18 @@ bot.on('callback_query', async (query) => {
 
     if (data.startsWith('change_item_')) {
       const itemId = data.replace('change_item_', '');
-      await handleChangeItemStart(bot, chatId, itemId, user.id);
+      const item = await prisma.orderItem.findUnique({
+        where: { id: itemId },
+        include: { product: true },
+      });
+      if (item) {
+        editItemQtySessions[chatId] = { itemId, orderId: item.orderId };
+        await bot.sendMessage(chatId,
+          `📦 ${item.product.name}\nJoriy: ${item.quantity} ${item.product.unit}\n\nYangi miqdor kiriting:`
+        );
+      } else {
+        await bot.sendMessage(chatId, '❌ Mahsulot topilmadi.');
+      }
       await bot.answerCallbackQuery(query.id);
       return;
     }
@@ -758,7 +910,7 @@ bot.on('callback_query', async (query) => {
           userId: item.order.distributorId,
           type: 'ORDER_CHANGE',
           title: 'Buyurtmadan mahsulot o\'chirildi',
-          message: `${item.order.orderNumber} buyurtmadan ${item.product.name} mahsuloti o'chirib tashlandi (miqdor 0 kiritildi).`,
+          message: `#${item.order.orderSeq} buyurtmadan ${item.product.name} mahsuloti o'chirib tashlandi (miqdor 0 kiritildi).`,
           relatedEntityType: 'order',
           relatedEntityId: item.orderId,
         },
@@ -934,55 +1086,28 @@ bot.on('callback_query', async (query) => {
 
 // Helper functions
 async function showOrderFilters(bot: TelegramBot, chatId: number) {
-  const message = '📊 **Buyurtmalarni ko\'rish**\n\nQaysi buyurtmalarni ko\'rmoqchisiz?';
-
-  const keyboard: TelegramBot.InlineKeyboardButton[][] = [
-    [
-      { text: '📅 Bugungi', callback_data: 'view_orders_today' },
-      { text: '⏳ Kutilmoqda', callback_data: 'view_orders_pending' },
-    ],
-    [{ text: '🔄 Barchasi', callback_data: 'view_orders_all' }],
-    [{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }],
-  ];
-
-  await bot.sendMessage(chatId, message, {
-    parse_mode: 'Markdown',
-    reply_markup: { inline_keyboard: keyboard },
+  await bot.sendMessage(chatId, '📊 Buyurtmalar — filtr tanlang:', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '📅 Bugun', callback_data: 'view_orders_today' },
+          { text: '📅 Kecha', callback_data: 'view_orders_yesterday' },
+          { text: '📅 Ertaga', callback_data: 'view_orders_tomorrow' },
+        ],
+        [
+          { text: '⏳ Kutilmoqda', callback_data: 'view_orders_DRAFT' },
+          { text: '✅ Tasdiqlangan', callback_data: 'view_orders_CONFIRMED' },
+        ],
+        [
+          { text: '📦 Yetkazilgan', callback_data: 'view_orders_DELIVERED' },
+          { text: '❌ Bekor qilingan', callback_data: 'view_orders_CANCELLED' },
+        ],
+        [{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }],
+      ],
+    },
   });
 }
 
-async function handleChangeItemStart(bot: TelegramBot, chatId: number, itemId: string, userId: string) {
-  try {
-    const item = await prisma.orderItem.findUnique({
-      where: { id: itemId },
-      include: { product: true, order: true },
-    });
-
-    if (!item) {
-      await bot.sendMessage(chatId, '❌ Mahsulot topilmadi.');
-      return;
-    }
-
-    const currentQuantity = item.adjustedQuantity || item.quantity;
-
-    quantityChangeSessions[chatId] = {
-      userId: userId,
-      itemId: itemId,
-      orderId: item.orderId,
-    };
-
-    const message =
-      `📝 **Miqdorni o'zgartirish**\n\n` +
-      `📦 Mahsulot: ${item.product.name}\n` +
-      `📊 Joriy miqdor: ${currentQuantity} ${item.product.unit}\n\n` +
-      `Yangi miqdorni kiriting (raqam):`;
-
-    await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-  } catch (error) {
-    logger.error('Error in handleChangeItemStart:', error);
-    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
-  }
-}
 
 async function handleProfile(bot: TelegramBot, chatId: number, user: any) {
   const message =
