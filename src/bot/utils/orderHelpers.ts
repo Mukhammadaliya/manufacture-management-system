@@ -41,7 +41,7 @@ export function getTodayDate(): Date {
   const tashkentOffset = 5 * 60;
   const utc = now.getTime() + now.getTimezoneOffset() * 60000;
   const tashkent = new Date(utc + tashkentOffset * 60000);
-  return new Date(tashkent.getFullYear(), tashkent.getMonth(), tashkent.getDate());
+  return new Date(Date.UTC(tashkent.getFullYear(), tashkent.getMonth(), tashkent.getDate()));
 }
 
 // Sana tugmalari uchun (bugun, ertaga, indinga)

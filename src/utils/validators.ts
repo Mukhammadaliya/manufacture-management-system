@@ -1,5 +1,13 @@
 import { z } from 'zod';
 
+// Berilgan UTC vaqtni Toshkent (UTC+5) sanasiga aylantiradi
+export function toTashkentDate(date: Date): Date {
+  const tashkentOffset = 5 * 60;
+  const utc = date.getTime() + date.getTimezoneOffset() * 60000;
+  const tashkent = new Date(utc + tashkentOffset * 60000);
+  return new Date(Date.UTC(tashkent.getFullYear(), tashkent.getMonth(), tashkent.getDate()));
+}
+
 // User validation
 export const createUserSchema = z.object({
   body: z.object({

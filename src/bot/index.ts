@@ -2,6 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
+import cron from 'node-cron';
 import logger from '../utils/logger';
 import { generateOrdersExcel } from './utils/excelReport';
 import { findUser, createUser, getUserInfo } from './utils/userManager';
@@ -13,6 +14,8 @@ import {
   cancelOrder,
   getOrderSession,
   viewMyOrders,
+  isOrderBanned,
+  setOrderBan,
 } from './handlers/orderHandler';
 import {
   viewNotifications,
@@ -44,6 +47,7 @@ import {
   handleUpdateItemQty,
   handleUpdateItemPrice,
   handleSetDate,
+  handleViewOrdersByDateAndStatus,
 } from './handlers/producerHandler';
 
 dotenv.config();
@@ -81,8 +85,30 @@ const customDateSessions: { [key: number]: { orderId: string } } = {};
 const editItemQtySessions: { [key: number]: { itemId: string; orderId: string } } = {};
 const editItemPriceSessions: { [key: number]: { itemId: string; orderId: string } } = {};
 const excelReportSessions: { [key: number]: ExcelReportSession } = {};
+const orderCustomDateSessions: { [key: number]: boolean } = {};
 
 logger.info('🤖 Telegram Bot ishga tushdi!');
+
+// Har kuni soat 04:00 Toshkent (23:00 UTC) da buyurtma banini avtomatik reset qilish
+cron.schedule('0 23 * * *', async () => {
+  try {
+    const setting = await prisma.systemSetting.findUnique({
+      where: { key: 'order_ban' },
+    });
+    if (setting) {
+      const value = setting.value as any;
+      if (value?.banned === true) {
+        await prisma.systemSetting.update({
+          where: { key: 'order_ban' },
+          data: { value: { banned: false } },
+        });
+        logger.info('Order ban auto-reset at 04:00 Tashkent time');
+      }
+    }
+  } catch (error) {
+    logger.error('Order ban auto-reset error:', error);
+  }
+});
 
 bot.on('polling_error', (error) => {
   logger.error('Bot polling error:', error);
@@ -459,6 +485,25 @@ bot.on('message', async (msg) => {
       return;
     }
 
+    // Producer buyurtmalar uchun erkin sana kiritish
+    if (orderCustomDateSessions[chatId]) {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(text)) {
+        await bot.sendMessage(chatId, '❌ Format: YYYY-MM-DD\nMasalan: 2026-03-15');
+        return;
+      }
+      const [y, m, d] = text.split('-').map(Number);
+      const date = new Date(Date.UTC(y, m - 1, d));
+      if (isNaN(date.getTime())) {
+        await bot.sendMessage(chatId, '❌ Noto\'g\'ri sana. Qaytadan kiriting:');
+        return;
+      }
+      delete orderCustomDateSessions[chatId];
+      // dateFilter sifatida YYYY-MM-DD string yuboramiz
+      await showOrderStatusFilter(bot, chatId, text);
+      return;
+    }
+
     // Custom date session (producer editing order date)
     if (customDateSessions[chatId]) {
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -555,6 +600,12 @@ bot.on('message', async (msg) => {
       case '👥 Foydalanuvchilar':  // <-- Yangi
         if (user.role === 'PRODUCER' || user.role === 'ADMIN') {
           await handlePendingUsers(bot, chatId);
+        }
+        break;
+
+      case '🚫 Buyurtmani boshqarish':
+        if (user.role === 'PRODUCER' || user.role === 'ADMIN') {
+          await showOrderBanMenu(bot, chatId);
         }
         break;
 
@@ -705,63 +756,76 @@ bot.on('callback_query', async (query) => {
       return;
     }
 
+    // Eski view_orders_today callback'lari (orqaga qaytish uchun saqlanadi)
     if (data === 'view_orders_today') {
-      try {
-        await bot.deleteMessage(chatId, messageId);
-      } catch (error) {
-        logger.debug('Could not delete message:', error);
-      }
+      try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
       await handleViewOrders(bot, chatId, 'today');
       await bot.answerCallbackQuery(query.id);
       return;
     }
 
-    if (data === 'view_orders_yesterday') {
+    // Yangi sana→status ketma-ketlik
+    if (data === 'show_order_filters') {
       try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
-      await handleViewOrders(bot, chatId, 'yesterday');
+      await showOrderFilters(bot, chatId);
       await bot.answerCallbackQuery(query.id);
       return;
     }
-    if (data === 'view_orders_tomorrow') {
+
+    if (data.startsWith('orders_date_')) {
+      const dateKey = data.replace('orders_date_', '');
       try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
-      await handleViewOrders(bot, chatId, 'tomorrow');
+
+      if (dateKey === 'custom') {
+        // Boshqa sana — foydalanuvchidan sana kiritishini so'rash
+        orderCustomDateSessions[chatId] = true;
+        await bot.sendMessage(chatId, '📅 Sanani kiriting (YYYY-MM-DD format):\nMasalan: 2026-03-15');
+      } else {
+        await showOrderStatusFilter(bot, chatId, dateKey);
+      }
       await bot.answerCallbackQuery(query.id);
       return;
     }
-    if (data === 'view_orders_DRAFT') {
+
+    if (data.startsWith('orders_filter_')) {
+      const parts = data.replace('orders_filter_', '').split('_');
+      const dateFilter = parts[0] as any;
+      const statusFilter = parts[1] as any;
       try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
-      await handleViewOrders(bot, chatId, 'DRAFT');
+
+      if (['today', 'yesterday', 'tomorrow'].includes(dateFilter)) {
+        await handleViewOrdersByDateAndStatus(bot, chatId, dateFilter, statusFilter);
+      } else {
+        // Custom sana — dateFilter YYYY-MM-DD formatida
+        const [y, m, d] = dateFilter.split('-').map(Number);
+        const date = new Date(Date.UTC(y, m - 1, d));
+        await handleViewOrdersByDateAndStatus(bot, chatId, date, statusFilter);
+      }
       await bot.answerCallbackQuery(query.id);
       return;
     }
-    if (data === 'view_orders_CONFIRMED') {
+
+    // Distribyutor buyurtmalarim filtri
+    if (data.startsWith('my_orders_')) {
+      const statusFilter = data.replace('my_orders_', '');
       try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
-      await handleViewOrders(bot, chatId, 'CONFIRMED');
-      await bot.answerCallbackQuery(query.id);
-      return;
-    }
-    if (data === 'view_orders_DELIVERED') {
-      try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
-      await handleViewOrders(bot, chatId, 'DELIVERED');
-      await bot.answerCallbackQuery(query.id);
-      return;
-    }
-    if (data === 'view_orders_CANCELLED') {
-      try { await bot.deleteMessage(chatId, messageId); } catch (e) {}
-      await handleViewOrders(bot, chatId, 'CANCELLED');
+      const userInfo = await getUserInfo(query.from.id);
+      if (userInfo) {
+        await viewMyOrders(bot, chatId, userInfo.id, statusFilter);
+      }
       await bot.answerCallbackQuery(query.id);
       return;
     }
 
     if (data.startsWith('view_order_')) {
       const orderId = data.replace('view_order_', '');
-      
+
       try {
         await bot.deleteMessage(chatId, messageId);
       } catch (error) {
         logger.debug('Could not delete message:', error);
       }
-      
+
       await handleViewOrderDetail(bot, chatId, orderId);
       await bot.answerCallbackQuery(query.id);
       return;
@@ -790,8 +854,8 @@ bot.on('callback_query', async (query) => {
       return;
     }
 
-    if (data.startsWith('edit_order_')) {
-      const orderId = data.replace('edit_order_', '');
+    if (data.startsWith('edit_order_menu_')) {
+      const orderId = data.replace('edit_order_menu_', '');
       await handleEditOrderMenu(bot, chatId, orderId);
       await bot.answerCallbackQuery(query.id);
       return;
@@ -1035,6 +1099,47 @@ bot.on('callback_query', async (query) => {
       return;
     }
 
+    // Order ban callbacks
+    if (data === 'order_ban_set' && (user.role === 'PRODUCER' || user.role === 'ADMIN')) {
+      await setOrderBan(true, user.id);
+      await bot.editMessageText(
+        '🔴 Buyurtma berish to\'xtatildi!\n\nDistribyutorlar endi buyurtma bera olmaydi.\nErtangi kun soat 04:00 da avtomatik ochiladi.',
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🟢 Buyurtmani ochish (reset)', callback_data: 'order_ban_reset' }],
+              [{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }],
+            ],
+          },
+        }
+      );
+      logger.info(`Order ban set by user ${user.id}`);
+      await bot.answerCallbackQuery(query.id, { text: 'Buyurtma to\'xtatildi!' });
+      return;
+    }
+
+    if (data === 'order_ban_reset' && (user.role === 'PRODUCER' || user.role === 'ADMIN')) {
+      await setOrderBan(false, user.id);
+      await bot.editMessageText(
+        '🟢 Buyurtma berish ochildi!\n\nDistribyutorlar endi buyurtma bera oladi.',
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔴 Buyurtmani to\'xtatish', callback_data: 'order_ban_set' }],
+              [{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }],
+            ],
+          },
+        }
+      );
+      logger.info(`Order ban reset by user ${user.id}`);
+      await bot.answerCallbackQuery(query.id, { text: 'Buyurtma ochildi!' });
+      return;
+    }
+
     // Pending users callbacks
     if (data === 'pending_users') {
       if (user.role === 'PRODUCER' || user.role === 'ADMIN') {
@@ -1167,23 +1272,35 @@ bot.on('callback_query', async (query) => {
 
 // Helper functions
 async function showOrderFilters(bot: TelegramBot, chatId: number) {
-  await bot.sendMessage(chatId, '📊 Buyurtmalar — filtr tanlang:', {
+  await bot.sendMessage(chatId, '📊 Buyurtmalar — sanani tanlang:', {
     reply_markup: {
       inline_keyboard: [
         [
-          { text: '📅 Bugun', callback_data: 'view_orders_today' },
-          { text: '📅 Kecha', callback_data: 'view_orders_yesterday' },
-          { text: '📅 Ertaga', callback_data: 'view_orders_tomorrow' },
+          { text: '📅 Kecha', callback_data: 'orders_date_yesterday' },
+          { text: '📅 Bugun', callback_data: 'orders_date_today' },
+          { text: '📅 Ertaga', callback_data: 'orders_date_tomorrow' },
         ],
-        [
-          { text: '⏳ Kutilmoqda', callback_data: 'view_orders_DRAFT' },
-          { text: '✅ Tasdiqlangan', callback_data: 'view_orders_CONFIRMED' },
-        ],
-        [
-          { text: '📦 Yetkazilgan', callback_data: 'view_orders_DELIVERED' },
-          { text: '❌ Bekor qilingan', callback_data: 'view_orders_CANCELLED' },
-        ],
+        [{ text: '📅 Boshqa sana', callback_data: 'orders_date_custom' }],
         [{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }],
+      ],
+    },
+  });
+}
+
+async function showOrderStatusFilter(bot: TelegramBot, chatId: number, dateFilter: string) {
+  await bot.sendMessage(chatId, '📊 Statusni tanlang:', {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '📋 Barchasi', callback_data: `orders_filter_${dateFilter}_ALL` }],
+        [
+          { text: '⏳ Kutilmoqda', callback_data: `orders_filter_${dateFilter}_DRAFT` },
+          { text: '✅ Tasdiqlangan', callback_data: `orders_filter_${dateFilter}_CONFIRMED` },
+        ],
+        [
+          { text: '📦 Yetkazilgan', callback_data: `orders_filter_${dateFilter}_DELIVERED` },
+          { text: '❌ Bekor qilingan', callback_data: `orders_filter_${dateFilter}_CANCELLED` },
+        ],
+        [{ text: '🔙 Orqaga', callback_data: 'show_order_filters' }],
       ],
     },
   });
@@ -1237,11 +1354,29 @@ function getMainKeyboard(role: string): TelegramBot.ReplyKeyboardMarkup {
       keyboard: [
         [{ text: '📊 Buyurtmalar' }, { text: '📈 Hisobotlar' }],
         [{ text: '👥 Foydalanuvchilar' }, { text: '🔔 Xabarnomalar' }],
+        [{ text: '🚫 Buyurtmani boshqarish' }],
         [{ text: '👤 Profil' }, { text: '❓ Yordam' }],
       ],
       resize_keyboard: true,
     };
   }
+}
+
+async function showOrderBanMenu(bot: TelegramBot, chatId: number) {
+  const banned = await isOrderBanned();
+  const status = banned
+    ? '🔴 Hozir buyurtma berish TO\'XTATILGAN'
+    : '🟢 Hozir buyurtma berish OCHIQ';
+
+  const buttons = banned
+    ? [[{ text: '🟢 Buyurtmani ochish (reset)', callback_data: 'order_ban_reset' }]]
+    : [[{ text: '🔴 Buyurtmani to\'xtatish', callback_data: 'order_ban_set' }]];
+
+  buttons.push([{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }]);
+
+  await bot.sendMessage(chatId, `🚫 Buyurtma boshqaruvi\n\n${status}\n\nErtangi kun soat 04:00 da avtomatik ochiladi.`, {
+    reply_markup: { inline_keyboard: buttons },
+  });
 }
 
 function translateRole(role: string): string {

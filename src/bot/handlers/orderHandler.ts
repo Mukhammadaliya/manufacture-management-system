@@ -5,6 +5,33 @@ import { formatDate, formatOrderNumber, getTodayDate, formatPrice } from '../uti
 
 const prisma = new PrismaClient();
 
+// Buyurtma ban holatini tekshirish
+export async function isOrderBanned(): Promise<boolean> {
+  try {
+    const setting = await prisma.systemSetting.findUnique({
+      where: { key: 'order_ban' },
+    });
+    if (!setting) return false;
+    const value = setting.value as any;
+    return value?.banned === true;
+  } catch {
+    return false;
+  }
+}
+
+// Buyurtma ban qilish/ochish
+export async function setOrderBan(banned: boolean, userId: string): Promise<void> {
+  const value = banned
+    ? { banned: true, bannedAt: new Date().toISOString(), bannedBy: userId }
+    : { banned: false };
+
+  await prisma.systemSetting.upsert({
+    where: { key: 'order_ban' },
+    update: { value },
+    create: { key: 'order_ban', value, description: 'Buyurtma berish blokirovkasi' },
+  });
+}
+
 interface OrderSession {
   userId: string;
   step: 'selecting_products' | 'entering_quantity';
@@ -21,6 +48,12 @@ const orderSessions = new Map<number, OrderSession>();
 
 export const startNewOrder = async (bot: TelegramBot, chatId: number, userId: string) => {
   try {
+    // Ban tekshiruvi
+    if (await isOrderBanned()) {
+      await bot.sendMessage(chatId, '🚫 Hozirda buyurtma berish to\'xtatilgan. Iltimos, keyinroq urinib ko\'ring.');
+      return;
+    }
+
     const products = await prisma.product.findMany({
       where: { isActive: true },
       orderBy: { name: 'asc' },
@@ -143,6 +176,22 @@ export const enterQuantity = async (
 
 export const confirmOrder = async (bot: TelegramBot, chatId: number) => {
   try {
+    // Ban tekshiruvi
+    if (await isOrderBanned()) {
+      orderSessions.delete(chatId);
+      await bot.sendMessage(chatId, '🚫 Buyurtma berish to\'xtatilgan. Buyurtmangiz bekor qilindi.', {
+        reply_markup: {
+          keyboard: [
+            [{ text: '📦 Yangi buyurtma' }, { text: '📋 Mening buyurtmalarim' }],
+            [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
+            [{ text: '❓ Yordam' }],
+          ],
+          resize_keyboard: true,
+        },
+      });
+      return;
+    }
+
     const session = orderSessions.get(chatId);
     if (!session || session.items.length === 0) {
       await bot.sendMessage(chatId, '❌ Buyurtmada mahsulotlar yo\'q.');
@@ -293,19 +342,41 @@ export const getOrderSession = (chatId: number) => orderSessions.get(chatId);
 export const viewMyOrders = async (
   bot: TelegramBot,
   chatId: number,
-  userId: string
+  userId: string,
+  statusFilter?: string
 ) => {
   try {
     orderSessions.delete(chatId);
 
+    const where: any = { distributorId: userId };
+    if (statusFilter && statusFilter !== 'ALL') {
+      where.status = statusFilter;
+    }
+
     const orders = await prisma.order.findMany({
-      where: { distributorId: userId },
+      where,
       orderBy: { orderSeq: 'desc' },
-      take: 10,
+      take: 20,
     });
 
+    // Filter tugmalari
+    const filterButtons: any[][] = [
+      [
+        { text: `${!statusFilter || statusFilter === 'ALL' ? '🔘' : ''} Barchasi`, callback_data: 'my_orders_ALL' },
+        { text: `${statusFilter === 'DRAFT' ? '🔘' : ''} ⏳ Kutilmoqda`, callback_data: 'my_orders_DRAFT' },
+      ],
+      [
+        { text: `${statusFilter === 'CONFIRMED' ? '🔘' : ''} ✅ Tasdiqlangan`, callback_data: 'my_orders_CONFIRMED' },
+        { text: `${statusFilter === 'DELIVERED' ? '🔘' : ''} 📦 Yetkazilgan`, callback_data: 'my_orders_DELIVERED' },
+      ],
+    ];
+
     if (orders.length === 0) {
-      await bot.sendMessage(chatId, '📋 Hali buyurtmalar yo\'q.');
+      await bot.sendMessage(chatId, '📋 Buyurtmalar topilmadi.', {
+        reply_markup: {
+          inline_keyboard: [...filterButtons, [{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }]],
+        },
+      });
       return;
     }
 
@@ -328,7 +399,7 @@ export const viewMyOrders = async (
 
     await bot.sendMessage(chatId, msg, {
       reply_markup: {
-        inline_keyboard: [[{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }]],
+        inline_keyboard: [...filterButtons, [{ text: '🔙 Orqaga', callback_data: 'back_to_menu' }]],
       },
     });
   } catch (error) {

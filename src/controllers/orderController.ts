@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { PrismaClient, OrderStatus } from '@prisma/client';
 import { asyncHandler } from '../middleware/errorHandler';
 import { NotFoundError, ValidationError, AuthorizationError } from '../utils/errors';
+import { toTashkentDate } from '../utils/validators';
 import logger from '../utils/logger';
 
 const prisma = new PrismaClient();
@@ -147,11 +148,24 @@ export const createOrder = asyncHandler(
       throw new ValidationError('Kamida bitta mahsulot bo\'lishi kerak');
     }
 
+    // Ban tekshiruvi
+    if (user.role === 'DISTRIBUTOR') {
+      const banSetting = await prisma.systemSetting.findUnique({
+        where: { key: 'order_ban' },
+      });
+      if (banSetting) {
+        const value = banSetting.value as any;
+        if (value?.banned === true) {
+          throw new ValidationError('Hozirda buyurtma berish to\'xtatilgan. Iltimos, keyinroq urinib ko\'ring.');
+        }
+      }
+    }
+
     // Buyurtmani yaratish
     const order = await prisma.order.create({
       data: {
         distributorId,
-        orderDate: orderDate ? new Date(orderDate) : new Date(),
+        orderDate: toTashkentDate(orderDate ? new Date(orderDate) : new Date()),
         status: OrderStatus.DRAFT,
         createdBy: user.id,
         updatedBy: user.id,

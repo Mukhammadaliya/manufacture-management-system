@@ -16,6 +16,8 @@ const prisma = new PrismaClient();
 const ONE_DAY_MS = 86_400_000;
 
 type OrderFilter = 'today' | 'yesterday' | 'tomorrow' | 'DRAFT' | 'CONFIRMED' | 'DELIVERED' | 'CANCELLED';
+type DateFilter = 'today' | 'yesterday' | 'tomorrow';
+type StatusFilter = 'ALL' | 'DRAFT' | 'CONFIRMED' | 'DELIVERED' | 'CANCELLED';
 
 // ── Internal helpers ────────────────────────────────────────────────────────
 
@@ -29,6 +31,7 @@ async function recalcOrderTotal(orderId: string, userId: string) {
 }
 
 async function notifyDistributor(
+  bot: TelegramBot,
   distributorId: string,
   orderId: string,
   message: string
@@ -43,6 +46,18 @@ async function notifyDistributor(
       relatedEntityId: orderId,
     },
   });
+
+  // Distribyutorga Telegram xabar yuborish
+  try {
+    const distributor = await prisma.user.findUnique({
+      where: { id: distributorId },
+    });
+    if (distributor) {
+      await bot.sendMessage(Number(distributor.telegramId), `📢 ${message}`);
+    }
+  } catch (e) {
+    logger.warn(`Could not send Telegram notification to distributor ${distributorId}:`, e);
+  }
 }
 
 // ── handleViewOrders ────────────────────────────────────────────────────────
@@ -131,6 +146,92 @@ export async function handleViewOrders(
   } catch (error) {
     logger.error('Error in handleViewOrders:', error);
     await bot.sendMessage(chatId, "❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.");
+  }
+}
+
+// ── handleViewOrdersByDateAndStatus ──────────────────────────────────────────
+
+export async function handleViewOrdersByDateAndStatus(
+  bot: TelegramBot,
+  chatId: number,
+  dateFilter: DateFilter | Date,
+  statusFilter: StatusFilter
+) {
+  try {
+    const where: any = {};
+
+    // Sana filtrini belgilash
+    let targetDate: Date;
+    if (dateFilter instanceof Date) {
+      targetDate = dateFilter;
+    } else {
+      const today = getTodayDate();
+      if (dateFilter === 'today') targetDate = today;
+      else if (dateFilter === 'yesterday') targetDate = new Date(today.getTime() - ONE_DAY_MS);
+      else targetDate = new Date(today.getTime() + ONE_DAY_MS);
+    }
+
+    where.orderDate = {
+      gte: targetDate,
+      lt: new Date(targetDate.getTime() + ONE_DAY_MS),
+    };
+
+    // Status filtrini belgilash
+    if (statusFilter !== 'ALL') {
+      where.status = statusFilter;
+    }
+
+    const orders = await prisma.order.findMany({
+      where,
+      include: {
+        distributor: true,
+        items: { include: { product: true } },
+      },
+      orderBy: { orderSeq: 'desc' },
+      take: 20,
+    });
+
+    if (orders.length === 0) {
+      await bot.sendMessage(chatId, '📋 Buyurtmalar topilmadi.', {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🔙 Orqaga', callback_data: 'show_order_filters' }]],
+        },
+      });
+      return;
+    }
+
+    let message = `📊 **Buyurtmalar** (${formatDate(targetDate)}):\n\n`;
+
+    orders.forEach((order, index) => {
+      const statusEmoji = getStatusEmoji(order.status);
+      const distributorName = order.distributor.companyName || order.distributor.name;
+
+      message += `${index + 1}. ${formatOrderNumber(order.orderSeq)}\n`;
+      message += `   👤 ${distributorName}\n`;
+      message += `   ${statusEmoji} ${translateStatus(order.status)}\n`;
+      message += `   📦 ${order.items.length} ta mahsulot\n\n`;
+    });
+
+    const keyboard: TelegramBot.InlineKeyboardButton[][] = [];
+
+    orders.forEach((order) => {
+      keyboard.push([
+        {
+          text: `📋 ${formatOrderNumber(order.orderSeq)} — ${order.distributor.companyName || order.distributor.name}`,
+          callback_data: `view_order_${order.id}`,
+        },
+      ]);
+    });
+
+    keyboard.push([{ text: '🔙 Orqaga', callback_data: 'show_order_filters' }]);
+
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  } catch (error) {
+    logger.error('Error in handleViewOrdersByDateAndStatus:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
   }
 }
 
@@ -324,7 +425,7 @@ export async function handleEditQuantities(
     const keyboard: TelegramBot.InlineKeyboardButton[][] = order.items.map((item) => [
       {
         text: `${item.product.name} (${item.quantity} ${item.product.unit})`,
-        callback_data: `edit_item_qty_${item.id}_${orderId}`,
+        callback_data: `edit_item_qty_${item.id}`,
       },
     ]);
 
@@ -366,7 +467,7 @@ export async function handleEditPrices(
     const keyboard: TelegramBot.InlineKeyboardButton[][] = order.items.map((item) => [
       {
         text: `${item.product.name} — ${formatPrice(item.unitPrice)}`,
-        callback_data: `edit_item_price_${item.id}_${orderId}`,
+        callback_data: `edit_item_price_${item.id}`,
       },
     ]);
 
@@ -417,6 +518,7 @@ export async function handleUpdateItemQty(
     await recalcOrderTotal(orderId, userId);
 
     await notifyDistributor(
+      bot,
       item.order.distributorId,
       orderId,
       `${formatOrderNumber(item.order.orderSeq)} buyurtmadagi ${item.product.name} miqdori ${newQty} ${item.product.unit} ga o'zgartirildi.`
@@ -475,6 +577,7 @@ export async function handleUpdateItemPrice(
     await recalcOrderTotal(orderId, userId);
 
     await notifyDistributor(
+      bot,
       item.order.distributorId,
       orderId,
       `${formatOrderNumber(item.order.orderSeq)} buyurtmadagi ${item.product.name} narxi ${formatPrice(newPrice)} ga o'zgartirildi.`
@@ -525,6 +628,7 @@ export async function handleSetDate(
     });
 
     await notifyDistributor(
+      bot,
       order.distributorId,
       orderId,
       `${formatOrderNumber(order.orderSeq)} buyurtma sanasi ${formatDate(newDate)} ga o'zgartirildi.`
@@ -645,12 +749,17 @@ export async function handleSetStatus(
       },
     });
 
-    // Also call notifyDistributor for ORDER_CHANGE record
-    await notifyDistributor(
-      order.distributorId,
-      orderId,
-      `${formatOrderNumber(order.orderSeq)} buyurtmangiz holati ${getStatusEmoji(newStatus)} ${translateStatus(newStatus)} ga o'zgartirildi.`
-    );
+    // Distribyutorga Telegram xabar yuborish
+    try {
+      const distributor = order.distributor;
+      const telegramMsg =
+        `📢 Buyurtma holati o'zgartirildi!\n\n` +
+        `🔢 ${formatOrderNumber(order.orderSeq)}\n` +
+        `${getStatusEmoji(oldStatus)} ${translateStatus(oldStatus)} → ${getStatusEmoji(newStatus)} ${translateStatus(newStatus)}`;
+      await bot.sendMessage(Number(distributor.telegramId), telegramMsg);
+    } catch (e) {
+      logger.warn(`Could not send Telegram notification to distributor ${order.distributorId}:`, e);
+    }
 
     const message =
       `✅ **Buyurtma holati o'zgartirildi!**\n\n` +
@@ -853,6 +962,7 @@ export async function handleConfirmDeleteItem(
     await recalcOrderTotal(orderId, userId);
 
     await notifyDistributor(
+      bot,
       item.order.distributorId,
       orderId,
       `${formatOrderNumber(orderSeq)} buyurtmadan ${productName} mahsuloti o'chirib tashlandi.`
@@ -950,6 +1060,7 @@ export async function handleConfirmDeleteOrder(
     await prisma.order.delete({ where: { id: orderId } });
 
     await notifyDistributor(
+      bot,
       distributorId,
       orderId,
       `${formatOrderNumber(orderSeq)} raqamli buyurtmangiz admin tomonidan o'chirib tashlandi.`
