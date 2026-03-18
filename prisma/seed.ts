@@ -3,7 +3,7 @@ import { PrismaClient, UserRole, ProductUnit, OrderStatus } from '@prisma/client
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seed data yaratilmoqda...');
+  console.log('🌱 Production seed data yaratilmoqda...');
 
   // Cleanup — re-run safe
   console.log('🧹 Eski ma\'lumotlar tozalanmoqda...');
@@ -11,10 +11,11 @@ async function main() {
   await prisma.orderItem.deleteMany({});
   await prisma.order.deleteMany({});
   await prisma.notification.deleteMany({});
+  await prisma.product.deleteMany({});
   console.log('✅ Tozalandi');
 
-  // 1. Foydalanuvchilarni yaratish
-  console.log('Foydalanuvchilar yaratilmoqda...');
+  // 1. Foydalanuvchilarni yaratish (Admin va Producer)
+  console.log('👤 Foydalanuvchilar yaratilmoqda...');
 
   const admin = await prisma.user.upsert({
     where: { telegramId: BigInt(111111111) },
@@ -22,7 +23,7 @@ async function main() {
     create: {
       telegramId: BigInt(111111111),
       role: UserRole.ADMIN,
-      name: 'Admin User',
+      name: 'Admin',
       phone: '+998901234567',
       isActive: true,
       updatedBy: 'SYSTEM',
@@ -42,265 +43,105 @@ async function main() {
     },
   });
 
-  const distributor1 = await prisma.user.upsert({
-    where: { telegramId: BigInt(333333333) },
-    update: {},
-    create: {
-      telegramId: BigInt(333333333),
-      role: UserRole.DISTRIBUTOR,
-      name: 'Distribyutor Aziz',
-      phone: '+998901234569',
-      companyName: 'Aziz Trade',
-      isActive: true,
-      updatedBy: 'SYSTEM',
-    },
-  });
+  console.log('✅ Foydalanuvchilar yaratildi');
 
-  const distributor2 = await prisma.user.upsert({
-    where: { telegramId: BigInt(444444444) },
-    update: {},
-    create: {
-      telegramId: BigInt(444444444),
-      role: UserRole.DISTRIBUTOR,
-      name: 'Distribyutor Bobur',
-      phone: '+998901234570',
-      companyName: 'Bobur Foods',
-      isActive: true,
-      updatedBy: 'SYSTEM',
-    },
-  });
-
-  console.log('Foydalanuvchilar yaratildi');
-
-  // 2. Mahsulotlarni yaratish
-  console.log('Mahsulotlar yaratilmoqda...');
+  // 2. Mahsulotlarni yaratish (faqat mahsulotlar, default data yo'q)
+  console.log('📦 Mahsulotlar yaratilmoqda...');
 
   const productData = [
-    {
-      code: 'KOLBASA-001',
-      name: 'Doktorskaya kolbasa',
-      unit: ProductUnit.KG,
-      price: 45000,
-      createdBy: admin.id,
-      updatedBy: admin.id,
-    },
-    {
-      code: 'KOLBASA-002',
-      name: 'Krakovskaya kolbasa',
-      unit: ProductUnit.KG,
-      price: 52000,
-      createdBy: admin.id,
-      updatedBy: admin.id,
-    },
-    {
-      code: 'SOSISKA-001',
-      name: "Mol go'shtli sosiska",
-      unit: ProductUnit.KG,
-      price: 38000,
-      createdBy: admin.id,
-      updatedBy: admin.id,
-    },
-    {
-      code: 'SOSISKA-002',
-      name: 'Tovuq sosiska',
-      unit: ProductUnit.KG,
-      price: 32000,
-      createdBy: admin.id,
-      updatedBy: admin.id,
-    },
-    {
-      code: 'VETCHINA-001',
-      name: 'Vet\u00e7ina',
-      unit: ProductUnit.KG,
-      price: 58000,
-      createdBy: admin.id,
-      updatedBy: admin.id,
-    },
+    // === BAZARSKI ===
+    { code: 'BAZARSKI-05', name: 'Bazarski 0.5', unit: ProductUnit.KG, price: 0 },
+    { code: 'BAZARSKI-06', name: 'Bazarski 0.6', unit: ProductUnit.KG, price: 0 },
+    { code: 'BAZARSKI-NEW-05', name: 'Bazarski New 0.5', unit: ProductUnit.KG, price: 0 },
+    { code: 'BAZARSKI-NEW-06', name: 'Bazarski New 0.6', unit: ProductUnit.KG, price: 0 },
+
+    // === BAVARSKI ===
+    { code: 'BAVARSKI-05', name: 'Bavarski 0.5', unit: ProductUnit.KG, price: 0 },
+    { code: 'BAVARSKI-06', name: 'Bavarski 0.6', unit: ProductUnit.KG, price: 0 },
+
+    // === YANGI TOSHKENT ===
+    { code: 'YANGI-TOSHKENT-06', name: 'Yangi toshkent 0.6', unit: ProductUnit.KG, price: 0 },
+
+    // === DOKTOR / ZAFTRK ===
+    { code: 'DOKTOR', name: 'Doktor', unit: ProductUnit.KG, price: 0 },
+    { code: 'ZAFTRK', name: 'Zaftrk', unit: ProductUnit.KG, price: 0 },
+    { code: 'DOKTOR-ARZON', name: 'Doktor arzon', unit: ProductUnit.KG, price: 0 },
+    { code: 'ZAFTRK-ARZON', name: 'Zaftrk arzon', unit: ProductUnit.KG, price: 0 },
+
+    // === SASISKA / TIGR ===
+    { code: 'SASISKA', name: 'Sasiska', unit: ProductUnit.KG, price: 0 },
+    { code: 'TIGR', name: 'Tigr', unit: ProductUnit.KG, price: 0 },
+    { code: 'SASISKA-ARZON', name: 'Sasiska arzon', unit: ProductUnit.KG, price: 0 },
+    { code: 'TIGR-ARZON', name: 'Tigr arzon', unit: ProductUnit.KG, price: 0 },
+
+    // === TALLIN / JORJ ===
+    { code: 'TALLIN', name: 'Tallin', unit: ProductUnit.KG, price: 0 },
+    { code: 'JORJ', name: 'Jorj', unit: ProductUnit.KG, price: 0 },
+
+    // === BOMBA / BREND ===
+    { code: 'MAHKAMOV-BOMBA', name: 'Mahkamov bomba', unit: ProductUnit.KG, price: 0 },
+    { code: 'ARQON-BOMBA', name: 'Arqon bomba', unit: ProductUnit.KG, price: 0 },
+    { code: 'MAHKAMOV-BREND', name: 'Mahkamov brend', unit: ProductUnit.KG, price: 0 },
+    { code: 'SERVELAT-BOMBA', name: 'Servelat bomba', unit: ProductUnit.KG, price: 0 },
+
+    // === SER AZ (turli o'lchamlar) ===
+    { code: 'SER-AZ-03', name: 'Ser az 0.3', unit: ProductUnit.KG, price: 0 },
+    { code: 'SER-AZ-04', name: 'Ser az 0.4', unit: ProductUnit.KG, price: 0 },
+    { code: 'SER-AZ-05-ING', name: 'Ser az 0.5 ingichka', unit: ProductUnit.KG, price: 0 },
+    { code: 'SER-AZ-05-QAL', name: 'Ser az 0.5 qalin', unit: ProductUnit.KG, price: 0 },
+    { code: 'SER-AZ-06-ING', name: 'Ser az 0.6 ingichka', unit: ProductUnit.KG, price: 0 },
+    { code: 'SER-AZ-06-QAL', name: 'Ser az 0.6 qalin', unit: ProductUnit.KG, price: 0 },
+    { code: 'SER-AZ-07-ING', name: 'Ser az 0.7 ingichka', unit: ProductUnit.KG, price: 0 },
+    { code: 'SER-AZ-07-QAL', name: 'Ser az 0.7 qalin', unit: ProductUnit.KG, price: 0 },
+    { code: 'SER-AZ-08', name: 'Ser az 0.8', unit: ProductUnit.KG, price: 0 },
+
+    // === RAMAZON ===
+    { code: 'RAMAZON-08', name: 'Ramazon 0.8', unit: ProductUnit.KG, price: 0 },
+
+    // === BOSHQALAR ===
+    { code: 'INDEYKA', name: 'Indeyka', unit: ProductUnit.KG, price: 0 },
+    { code: 'YANGILIK-GOSHT', name: 'Yangilik gosht', unit: ProductUnit.KG, price: 0 },
+    { code: 'POKON', name: 'Pokon', unit: ProductUnit.KG, price: 0 },
+    { code: 'POKON-ARZON', name: 'Pokon arzon', unit: ProductUnit.KG, price: 0 },
+
+    // === SALYAMI ===
+    { code: 'SALYAMI-05', name: 'Salyami 0.5', unit: ProductUnit.KG, price: 0 },
+    { code: 'SALYAMI-06', name: 'Salyami 0.6', unit: ProductUnit.KG, price: 0 },
+
+    // === SETKA ===
+    { code: 'SETKA-03', name: 'Setka 0.3', unit: ProductUnit.KG, price: 0 },
+    { code: 'SETKA-04', name: 'Setka 0.4', unit: ProductUnit.KG, price: 0 },
+
+    // === QOLGAN MAHSULOTLAR ===
+    { code: 'BATON-BOMBA', name: 'Baton bomba', unit: ProductUnit.KG, price: 0 },
+    { code: 'GARADSKOY', name: 'Garadskoy', unit: ProductUnit.KG, price: 0 },
+    { code: 'CHIMKENT', name: 'Chimkent', unit: ProductUnit.KG, price: 0 },
+    { code: 'ESTON', name: 'Eston', unit: ProductUnit.KG, price: 0 },
+    { code: 'PRIMA', name: 'Prima', unit: ProductUnit.KG, price: 0 },
   ];
 
-  const products: Record<string, { id: string; price: import('@prisma/client').Prisma.Decimal }> = {};
-
+  let createdCount = 0;
   for (const p of productData) {
-    const product = await prisma.product.upsert({
+    await prisma.product.upsert({
       where: { code: p.code },
-      update: {},
-      create: p,
+      update: {
+        name: p.name,
+        unit: p.unit,
+        updatedBy: admin.id,
+      },
+      create: {
+        ...p,
+        createdBy: admin.id,
+        updatedBy: admin.id,
+      },
     });
-    products[p.code] = product;
+    createdCount++;
   }
 
-  console.log('Mahsulotlar yaratildi');
+  console.log(`✅ ${createdCount} ta mahsulot yaratildi`);
 
-  // 3. Buyurtmalar yaratish
-  console.log('Buyurtmalar yaratilmoqda...');
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  const twoDaysAgo = new Date(today);
-  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-
-  // Order 1 - distributor1, CONFIRMED
-  const order1Items = [
-    {
-      productId: products['KOLBASA-001'].id,
-      quantity: 50,
-      unitPrice: Number(products['KOLBASA-001'].price),
-      totalPrice: 50 * Number(products['KOLBASA-001'].price),
-      createdBy: distributor1.id,
-      updatedBy: distributor1.id,
-    },
-    {
-      productId: products['SOSISKA-001'].id,
-      quantity: 30,
-      unitPrice: Number(products['SOSISKA-001'].price),
-      totalPrice: 30 * Number(products['SOSISKA-001'].price),
-      createdBy: distributor1.id,
-      updatedBy: distributor1.id,
-    },
-  ];
-  const order1Total = order1Items.reduce((sum, item) => sum + item.totalPrice, 0);
-
-  const order1 = await prisma.order.create({
-    data: {
-      distributorId: distributor1.id,
-      orderDate: twoDaysAgo,
-      status: OrderStatus.CONFIRMED,
-      totalAmount: order1Total,
-      createdBy: distributor1.id,
-      updatedBy: admin.id,
-      items: {
-        create: order1Items,
-      },
-    },
-  });
-
-  // Order 2 - distributor2, DELIVERED
-  const order2Items = [
-    {
-      productId: products['KOLBASA-002'].id,
-      quantity: 40,
-      unitPrice: Number(products['KOLBASA-002'].price),
-      totalPrice: 40 * Number(products['KOLBASA-002'].price),
-      createdBy: distributor2.id,
-      updatedBy: distributor2.id,
-    },
-    {
-      productId: products['VETCHINA-001'].id,
-      quantity: 20,
-      unitPrice: Number(products['VETCHINA-001'].price),
-      totalPrice: 20 * Number(products['VETCHINA-001'].price),
-      createdBy: distributor2.id,
-      updatedBy: distributor2.id,
-    },
-  ];
-  const order2Total = order2Items.reduce((sum, item) => sum + item.totalPrice, 0);
-
-  const order2 = await prisma.order.create({
-    data: {
-      distributorId: distributor2.id,
-      orderDate: yesterday,
-      status: OrderStatus.DELIVERED,
-      totalAmount: order2Total,
-      createdBy: distributor2.id,
-      updatedBy: admin.id,
-      items: {
-        create: order2Items,
-      },
-    },
-  });
-
-  // Order 3 - distributor1, DRAFT
-  const order3Items = [
-    {
-      productId: products['SOSISKA-002'].id,
-      quantity: 25,
-      unitPrice: Number(products['SOSISKA-002'].price),
-      totalPrice: 25 * Number(products['SOSISKA-002'].price),
-      createdBy: distributor1.id,
-      updatedBy: distributor1.id,
-    },
-  ];
-  const order3Total = order3Items.reduce((sum, item) => sum + item.totalPrice, 0);
-
-  const order3 = await prisma.order.create({
-    data: {
-      distributorId: distributor1.id,
-      orderDate: today,
-      status: OrderStatus.DRAFT,
-      totalAmount: order3Total,
-      createdBy: distributor1.id,
-      updatedBy: distributor1.id,
-      items: {
-        create: order3Items,
-      },
-    },
-  });
-
-  console.log('Buyurtmalar yaratildi');
-
-  // 4. OrderStatusHistory yaratish
-  console.log('Order status history yaratilmoqda...');
-
-  // Order 1 history: DRAFT -> CONFIRMED
-  await prisma.orderStatusHistory.createMany({
-    data: [
-      {
-        orderId: order1.id,
-        status: OrderStatus.DRAFT,
-        changedBy: distributor1.id,
-        notes: 'Buyurtma yaratildi',
-      },
-      {
-        orderId: order1.id,
-        status: OrderStatus.CONFIRMED,
-        changedBy: admin.id,
-        notes: 'Buyurtma tasdiqlandi',
-      },
-    ],
-  });
-
-  // Order 2 history: DRAFT -> CONFIRMED -> DELIVERED
-  await prisma.orderStatusHistory.createMany({
-    data: [
-      {
-        orderId: order2.id,
-        status: OrderStatus.DRAFT,
-        changedBy: distributor2.id,
-        notes: 'Buyurtma yaratildi',
-      },
-      {
-        orderId: order2.id,
-        status: OrderStatus.CONFIRMED,
-        changedBy: admin.id,
-        notes: 'Buyurtma tasdiqlandi',
-      },
-      {
-        orderId: order2.id,
-        status: OrderStatus.DELIVERED,
-        changedBy: producer.id,
-        notes: 'Buyurtma yetkazib berildi',
-      },
-    ],
-  });
-
-  // Order 3 history: DRAFT
-  await prisma.orderStatusHistory.create({
-    data: {
-      orderId: order3.id,
-      status: OrderStatus.DRAFT,
-      changedBy: distributor1.id,
-      notes: 'Buyurtma yaratildi',
-    },
-  });
-
-  console.log('Order status history yaratildi');
-
-  // 5. Tizim sozlamalarini yaratish
-  console.log('Tizim sozlamalari yaratilmoqda...');
+  // 3. Tizim sozlamalari
+  console.log('⚙️ Tizim sozlamalari yaratilmoqda...');
 
   await prisma.orderTimeSetting.upsert({
     where: { id: '00000000-0000-0000-0000-000000000001' },
@@ -316,7 +157,7 @@ async function main() {
 
   await prisma.systemSetting.upsert({
     where: { key: 'app_version' },
-    update: {},
+    update: { value: { version: '2.0.0' } },
     create: {
       key: 'app_version',
       value: { version: '2.0.0' },
@@ -324,14 +165,22 @@ async function main() {
     },
   });
 
-  console.log('Tizim sozlamalari yaratildi');
+  console.log('✅ Tizim sozlamalari yaratildi');
 
-  console.log('Seed data muvaffaqiyatli yaratildi!');
+  console.log('');
+  console.log('========================================');
+  console.log('🎉 Production seed muvaffaqiyatli yaratildi!');
+  console.log(`📦 Mahsulotlar: ${createdCount} ta`);
+  console.log('👤 Admin: telegramId 111111111');
+  console.log('👤 Producer: telegramId 222222222');
+  console.log('⚠️  Default buyurtmalar yaratilMADI');
+  console.log('⚠️  Narxlar 0 — admin paneldan o\'rnating');
+  console.log('========================================');
 }
 
 main()
   .catch((e) => {
-    console.error('Xato yuz berdi:', e);
+    console.error('❌ Xato yuz berdi:', e);
     process.exit(1);
   })
   .finally(async () => {
