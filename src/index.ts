@@ -14,6 +14,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+
 
 // Body parser
 app.use(express.json());
@@ -55,11 +57,9 @@ app.use((req, res) => {
 // Error handling middleware (oxirida bo'lishi kerak!)
 app.use(errorHandler);
 
-const HOST = process.env.HOST || '0.0.0.0';
-
 app.listen(Number(PORT), HOST, () => {
   logger.info(`🚀 Server ishga tushdi: http://${HOST}:${PORT}`);
-  logger.info(`📝 API Documentation: http://localhost:${PORT}/api`);
+  logger.info(`📝 API Documentation: http://${HOST}:${PORT}/api`);
 });
 
 export default app;
