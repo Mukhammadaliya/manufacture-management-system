@@ -6,7 +6,7 @@ const logsDir = path.join(__dirname, '../../logs');
 
 // Winston logger konfiguratsiyasi
 const logger = winston.createLogger({
-  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+  level: process.env.NODE_ENV === 'production' ? 'warn' : 'debug',
   format: winston.format.combine(
     winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
     winston.format.errors({ stack: true }),
@@ -19,14 +19,14 @@ const logger = winston.createLogger({
     new winston.transports.File({
       filename: path.join(logsDir, 'error.log'),
       level: 'error',
-      maxsize: 5242880, // 5MB
-      maxFiles: 5,
+      maxsize: 2097152, // 2MB
+      maxFiles: 3,
     }),
     // Barcha loglar uchun
     new winston.transports.File({
       filename: path.join(logsDir, 'combined.log'),
-      maxsize: 5242880, // 5MB
-      maxFiles: 5,
+      maxsize: 2097152, // 2MB
+      maxFiles: 3,
     }),
   ],
 });
