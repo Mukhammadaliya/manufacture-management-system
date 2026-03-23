@@ -9,7 +9,31 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy via SSH
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies and build
+        run: |
+          npm install
+          npx tsc
+          npx prisma generate
+
+      - name: Deploy dist via SSH
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.ALWAYSDATA_SSH_HOST }}
+          username: ${{ secrets.ALWAYSDATA_SSH_USER }}
+          password: ${{ secrets.ALWAYSDATA_SSH_PASSWORD }}
+          source: "dist/"
+          target: "~/app/"
+          overwrite: true
+
+      - name: Deploy prisma and restart
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.ALWAYSDATA_SSH_HOST }}
@@ -18,6 +42,5 @@ jobs:
           script: |
             cd ~/app
             git pull origin main
-            npm install
-            npm run build
+            npm install --omit=dev
             npx prisma migrate deploy
