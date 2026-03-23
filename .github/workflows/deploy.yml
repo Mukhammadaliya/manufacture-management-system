@@ -16,8 +16,8 @@ jobs:
           username: ${{ secrets.ALWAYSDATA_SSH_USER }}
           password: ${{ secrets.ALWAYSDATA_SSH_PASSWORD }}
           script: |
-            cd ~/manufacture-management-system
+            cd ~/app
             git pull origin main
-            npm ci --production=false
+            npm install
             npm run build
             npx prisma migrate deploy
