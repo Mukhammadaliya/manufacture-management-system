@@ -298,6 +298,7 @@ describe('Order Controller Tests', () => {
         ],
       };
 
+      (mockPrisma.systemSetting as any) = { findUnique: jest.fn().mockResolvedValue(null) };
       (mockPrisma.order.create as jest.Mock).mockResolvedValue(mockCreatedOrder);
       (mockPrisma.orderStatusHistory.create as jest.Mock).mockResolvedValue({});
 

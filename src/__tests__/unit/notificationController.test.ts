@@ -58,6 +58,7 @@ describe('Notification Controller Tests', () => {
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
+      updatedBy: 'system',
     };
 
     mockRequest = {

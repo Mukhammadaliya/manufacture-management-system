@@ -87,6 +87,7 @@ describe('Auth Controller Tests', () => {
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        updatedBy: 'system',
       };
 
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
@@ -154,6 +155,7 @@ describe('Auth Controller Tests', () => {
         isActive: false,
         createdAt: new Date(),
         updatedAt: new Date(),
+        updatedBy: 'system',
       };
 
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(inactiveUser);
@@ -182,6 +184,7 @@ describe('Auth Controller Tests', () => {
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        updatedBy: 'system',
       };
 
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
@@ -212,6 +215,7 @@ describe('Auth Controller Tests', () => {
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        updatedBy: 'system',
       };
 
       mockRequest.user = mockUser;
@@ -246,6 +250,7 @@ describe('Auth Controller Tests', () => {
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        updatedBy: 'system',
       };
 
       mockRequest.user = mockProducer;
@@ -279,6 +284,7 @@ describe('Auth Controller Tests', () => {
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        updatedBy: 'system',
       };
 
       mockRequest.user = mockAdmin;
@@ -312,6 +318,7 @@ describe('Auth Controller Tests', () => {
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        updatedBy: 'system',
       };
 
       mockRequest.user = mockUser;
