@@ -42,44 +42,181 @@ interface OrderSession {
     quantity: number;
     unitPrice: number;
   }>;
+  currentPage: number;
+  forDistributorId?: string;
+  lastMessageId?: number;
 }
 
 const orderSessions = new Map<number, OrderSession>();
 
-export const startNewOrder = async (bot: TelegramBot, chatId: number, userId: string) => {
+const PRODUCTS_PER_PAGE = 8;
+
+function buildProductPageKeyboard(
+  products: Array<{ id: string; name: string; price: any }>,
+  selectedProductIds: string[],
+  page: number,
+  hasItems: boolean
+): { keyboard: TelegramBot.InlineKeyboardButton[][]; totalPages: number; text: string } {
+  const remaining = products.filter((p) => !selectedProductIds.includes(p.id));
+  const totalPages = Math.max(1, Math.ceil(remaining.length / PRODUCTS_PER_PAGE));
+  const safePage = Math.min(page, totalPages - 1);
+  const start = safePage * PRODUCTS_PER_PAGE;
+  const pageProducts = remaining.slice(start, start + PRODUCTS_PER_PAGE);
+
+  const keyboard: TelegramBot.InlineKeyboardButton[][] = pageProducts.map((p) => [
+    {
+      text: `${p.name} — ${formatPrice(p.price)}`,
+      callback_data: `select_product:${p.id}`,
+    },
+  ]);
+
+  // Navigation row
+  const navRow: TelegramBot.InlineKeyboardButton[] = [];
+  if (safePage > 0) {
+    navRow.push({ text: '⬅️', callback_data: 'order_page_prev' });
+  }
+  navRow.push({ text: `📄 ${safePage + 1}/${totalPages}`, callback_data: 'order_page_noop' });
+  if (safePage < totalPages - 1) {
+    navRow.push({ text: '➡️', callback_data: 'order_page_next' });
+  }
+  if (totalPages > 1) {
+    keyboard.push(navRow);
+  }
+
+  // Action buttons
+  if (hasItems) {
+    keyboard.push([{ text: '✅ Buyurtmani tasdiqlash', callback_data: 'confirm_order' }]);
+  }
+  keyboard.push([{ text: '❌ Bekor qilish', callback_data: 'cancel_order' }]);
+
+  const text = remaining.length > 0
+    ? `📦 Mahsulot tanlang (${safePage + 1}/${totalPages}):`
+    : '📦 Barcha mahsulotlar tanlandi.';
+
+  return { keyboard, totalPages, text };
+}
+
+export const startNewOrder = async (bot: TelegramBot, chatId: number, userId: string, userRole?: string) => {
   try {
-    // Ban tekshiruvi
     if (await isOrderBanned()) {
       await bot.sendMessage(chatId, '🚫 Hozirda buyurtma berish to\'xtatilgan. Iltimos, keyinroq urinib ko\'ring.');
       return;
     }
+
+    // Producer/Admin: first select distributor
+    if (userRole === 'PRODUCER' || userRole === 'ADMIN') {
+      const distributors = await prisma.user.findMany({
+        where: { role: 'DISTRIBUTOR', isActive: true },
+        orderBy: { name: 'asc' },
+      });
+
+      if (distributors.length === 0) {
+        await bot.sendMessage(chatId, '❌ Faol distribyutorlar topilmadi.');
+        return;
+      }
+
+      const keyboard: TelegramBot.InlineKeyboardButton[][] = distributors.map((d) => [
+        {
+          text: `${d.name}${d.companyName ? ' — "' + d.companyName + '"' : ''}`,
+          callback_data: `select_distributor:${d.id}`,
+        },
+      ]);
+      keyboard.push([{ text: '❌ Bekor qilish', callback_data: 'cancel_order' }]);
+
+      await bot.sendMessage(chatId, '👥 Qaysi distribyutor uchun buyurtma yaratmoqchisiz?', {
+        reply_markup: { inline_keyboard: keyboard },
+      });
+      return;
+    }
+
+    // Distributor: go directly to product selection
+    await showProductPage(bot, chatId, userId);
+  } catch (error) {
+    logger.error('startNewOrder error:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+};
+
+async function showProductPage(bot: TelegramBot, chatId: number, userId: string, forDistributorId?: string) {
+  const products = await prisma.product.findMany({
+    where: { isActive: true },
+    orderBy: { name: 'asc' },
+  });
+
+  if (products.length === 0) {
+    await bot.sendMessage(chatId, '❌ Hozirda mahsulotlar mavjud emas.');
+    return;
+  }
+
+  const session: OrderSession = {
+    userId,
+    step: 'selecting_products',
+    items: [],
+    currentPage: 0,
+    ...(forDistributorId && { forDistributorId }),
+  };
+  orderSessions.set(chatId, session);
+
+  const { keyboard, text } = buildProductPageKeyboard(products, [], 0, false);
+  const sent = await bot.sendMessage(chatId, text, {
+    reply_markup: { inline_keyboard: keyboard },
+  });
+  session.lastMessageId = sent.message_id;
+  orderSessions.set(chatId, session);
+}
+
+export const selectDistributor = async (
+  bot: TelegramBot,
+  chatId: number,
+  messageId: number,
+  distributorId: string,
+  producerUserId: string
+) => {
+  try {
+    const distributor = await prisma.user.findUnique({ where: { id: distributorId } });
+    if (!distributor) {
+      await bot.sendMessage(chatId, '❌ Distribyutor topilmadi.');
+      return;
+    }
+
+    orderSessions.delete(chatId);
+    await showProductPage(bot, chatId, producerUserId, distributorId);
+  } catch (error) {
+    logger.error('selectDistributor error:', error);
+    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+  }
+};
+
+export const handlePageNavigation = async (
+  bot: TelegramBot,
+  chatId: number,
+  messageId: number,
+  direction: 'next' | 'prev'
+) => {
+  try {
+    const session = orderSessions.get(chatId);
+    if (!session) return;
+
+    session.currentPage += direction === 'next' ? 1 : -1;
+    session.currentPage = Math.max(0, session.currentPage);
 
     const products = await prisma.product.findMany({
       where: { isActive: true },
       orderBy: { name: 'asc' },
     });
 
-    if (products.length === 0) {
-      await bot.sendMessage(chatId, '❌ Hozirda mahsulotlar mavjud emas.');
-      return;
-    }
+    const selectedIds = session.items.map((i) => i.productId);
+    const { keyboard, text } = buildProductPageKeyboard(products, selectedIds, session.currentPage, session.items.length > 0);
 
-    orderSessions.set(chatId, { userId, step: 'selecting_products', items: [] });
+    orderSessions.set(chatId, session);
 
-    const keyboard = products.map((p) => [
-      {
-        text: `${p.name} — ${formatPrice(p.price)}`,
-        callback_data: `select_product:${p.id}`,
-      },
-    ]);
-    keyboard.push([{ text: '❌ Bekor qilish', callback_data: 'cancel_order' }]);
-
-    await bot.sendMessage(chatId, '📦 Mahsulot tanlang:', {
+    await bot.editMessageText(text, {
+      chat_id: chatId,
+      message_id: messageId,
       reply_markup: { inline_keyboard: keyboard },
     });
   } catch (error) {
-    logger.error('startNewOrder error:', error);
-    await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
+    logger.error('handlePageNavigation error:', error);
   }
 };
 
@@ -151,23 +288,16 @@ export const enterQuantity = async (
       summary += `${i + 1}. ${item.productName} — ${item.quantity} ${item.unit}\n`;
     });
 
-    const remaining = products.filter(
-      (p) => !session.items.find((i) => i.productId === p.id)
-    );
-    const keyboard: TelegramBot.InlineKeyboardButton[][] = remaining.map((p) => [
-      {
-        text: `${p.name} — ${formatPrice(p.price)}`,
-        callback_data: `select_product:${p.id}`,
-      },
-    ]);
-    keyboard.push([{ text: '✅ Buyurtmani tasdiqlash', callback_data: 'confirm_order' }]);
-    keyboard.push([{ text: '❌ Bekor qilish', callback_data: 'cancel_order' }]);
+    const selectedIds = session.items.map((i) => i.productId);
+    const { keyboard, text } = buildProductPageKeyboard(products, selectedIds, session.currentPage, true);
 
     orderSessions.set(chatId, session);
 
-    await bot.sendMessage(chatId, `${summary}\nQo'shish yoki tasdiqlash:`, {
+    const sent = await bot.sendMessage(chatId, `${summary}\n${text}`, {
       reply_markup: { inline_keyboard: keyboard },
     });
+    session.lastMessageId = sent.message_id;
+    orderSessions.set(chatId, session);
   } catch (error) {
     logger.error('enterQuantity error:', error);
     await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
@@ -206,7 +336,7 @@ export const confirmOrder = async (bot: TelegramBot, chatId: number) => {
 
     const order = await prisma.order.create({
       data: {
-        distributorId: session.userId,
+        distributorId: session.forDistributorId || session.userId,
         orderDate: today,
         status: 'DRAFT',
         totalAmount,
@@ -316,6 +446,35 @@ async function notifyProducers(bot: TelegramBot, order: any) {
         });
       } catch (e) {
         logger.warn(`Could not notify producer ${producer.id}:`, e);
+      }
+    }
+    // If order was created on behalf of a distributor by producer, notify the distributor
+    if (order.createdBy !== order.distributorId) {
+      try {
+        const distMsg =
+          `📦 Sizning nomingizdan buyurtma yaratildi!\n\n` +
+          `🔢 ${formatOrderNumber(order.orderSeq)}\n` +
+          `📅 ${formatDate(order.orderDate)}\n` +
+          `📦 ${order.items.length} ta mahsulot\n` +
+          `💰 ${formatPrice(order.totalAmount)}`;
+
+        const distUser = await prisma.user.findUnique({ where: { id: order.distributorId } });
+        if (distUser) {
+          await bot.sendMessage(Number(distUser.telegramId), distMsg);
+
+          await prisma.notification.create({
+            data: {
+              userId: distUser.id,
+              type: 'ORDER_STATUS',
+              title: `Yangi buyurtma ${formatOrderNumber(order.orderSeq)}`,
+              message: `Sizning nomingizdan buyurtma yaratildi.`,
+              relatedEntityType: 'order',
+              relatedEntityId: order.id,
+            },
+          });
+        }
+      } catch (e) {
+        logger.warn(`Could not notify distributor:`, e);
       }
     }
   } catch (error) {

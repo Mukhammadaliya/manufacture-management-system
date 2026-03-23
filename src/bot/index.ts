@@ -16,6 +16,8 @@ import {
   viewMyOrders,
   isOrderBanned,
   setOrderBan,
+  handlePageNavigation,
+  selectDistributor,
 } from './handlers/orderHandler';
 import {
   viewNotifications,
@@ -150,6 +152,7 @@ bot.onText(/\/start/, async (msg) => {
 
   try {
     const user = await findUser(msg.from.id);
+    logger.debug(`/start: findUser(${msg.from.id}) = ${user ? `id=${user.id}, isActive=${user.isActive}, role=${user.role}` : 'null'}`);
 
     if (!user) {
       registrationSessions[chatId] = {
@@ -159,7 +162,7 @@ bot.onText(/\/start/, async (msg) => {
 
       const message =
         `Assalomu alaykum! 👋\n\n` +
-        `🥩 Real Taste of Meat - Buyurtmalar botiga xush kelibsiz!\n\n` +
+        `🥩 NMM Group Bot - Buyurtmalar botiga xush kelibsiz!\n\n` +
         `Iltimos, rolni tanlang:`;
 
       await bot.sendMessage(chatId, message, {
@@ -189,7 +192,7 @@ bot.onText(/\/start/, async (msg) => {
 
     const welcomeMessage =
       `Assalomu alaykum, ${user.name}! 👋\n\n` +
-      `🥩 Real Taste of Meat - Buyurtmalar botiga xush kelibsiz!\n\n` +
+      `🥩 NMM Group Bot - Buyurtmalar botiga xush kelibsiz!\n\n` +
       `Bu bot orqali siz:\n` +
       `✅ Buyurtma berishingiz\n` +
       `✅ Buyurtmalaringizni kuzatishingiz\n` +
@@ -199,7 +202,7 @@ bot.onText(/\/start/, async (msg) => {
       reply_markup: getMainKeyboard(user.role),
     });
 
-    logger.info(`User ${user.telegramId} started the bot`);
+    logger.debug(`/start: welcome message sent to ${chatId}`);
   } catch (error) {
     logger.error('Error in /start command:', error);
     await bot.sendMessage(chatId, '❌ Xatolik yuz berdi.');
@@ -567,7 +570,7 @@ bot.on('message', async (msg) => {
       case '📦 Yangi buyurtma':
         const userInfo = await getUserInfo(msg.from.id);
         if (userInfo) {
-          await startNewOrder(bot, chatId, userInfo.id);
+          await startNewOrder(bot, chatId, userInfo.id, userInfo.role);
         }
         break;
 
@@ -732,6 +735,27 @@ bot.on('callback_query', async (query) => {
     }
 
     if (!user || !user.isActive) {
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+
+    // Pagination callbacks
+    if (data === 'order_page_next' || data === 'order_page_prev') {
+      const direction = data === 'order_page_next' ? 'next' : 'prev';
+      await handlePageNavigation(bot, chatId, messageId, direction);
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+
+    if (data === 'order_page_noop') {
+      await bot.answerCallbackQuery(query.id);
+      return;
+    }
+
+    // Distributor selection for producer ordering
+    if (data.startsWith('select_distributor:')) {
+      const distributorId = data.split(':')[1];
+      await selectDistributor(bot, chatId, messageId, distributorId, user.id);
       await bot.answerCallbackQuery(query.id);
       return;
     }
