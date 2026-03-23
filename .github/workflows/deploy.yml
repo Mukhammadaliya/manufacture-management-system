@@ -19,21 +19,27 @@ jobs:
 
       - name: Install dependencies and build
         run: |
-          npm install
+          npm ci
           npx tsc
           npx prisma generate
 
-      - name: Deploy dist via SSH
+      - name: Pack production node_modules
+        run: |
+          rm -rf node_modules
+          npm ci --omit=dev
+          tar czf node_modules.tar.gz node_modules
+
+      - name: Deploy files via SSH
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.ALWAYSDATA_SSH_HOST }}
           username: ${{ secrets.ALWAYSDATA_SSH_USER }}
           password: ${{ secrets.ALWAYSDATA_SSH_PASSWORD }}
-          source: "dist/"
+          source: "dist/,node_modules.tar.gz,prisma/"
           target: "~/app/"
           overwrite: true
 
-      - name: Deploy prisma and restart
+      - name: Extract and restart
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.ALWAYSDATA_SSH_HOST }}
@@ -41,4 +47,6 @@ jobs:
           password: ${{ secrets.ALWAYSDATA_SSH_PASSWORD }}
           script: |
             cd ~/app
+            tar xzf node_modules.tar.gz
+            rm node_modules.tar.gz
             git pull origin main
