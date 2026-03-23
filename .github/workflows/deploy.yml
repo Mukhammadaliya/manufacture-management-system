@@ -42,5 +42,4 @@ jobs:
           script: |
             cd ~/app
             git pull origin main
-            npm install --omit=dev
             npx prisma migrate deploy
