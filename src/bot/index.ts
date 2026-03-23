@@ -6,6 +6,7 @@ import cron from 'node-cron';
 import logger from '../utils/logger';
 import { generateOrdersExcel } from './utils/excelReport';
 import { findUser, createUser, getUserInfo } from './utils/userManager';
+import { getMainKeyboard } from './utils/messages';
 import {
   startNewOrder,
   selectProduct,
@@ -1363,28 +1364,6 @@ async function handleHelp(bot: TelegramBot, chatId: number, role: string) {
   await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 }
 
-function getMainKeyboard(role: string): TelegramBot.ReplyKeyboardMarkup {
-  if (role === 'DISTRIBUTOR') {
-    return {
-      keyboard: [
-        [{ text: '📦 Yangi buyurtma' }, { text: '📋 Mening buyurtmalarim' }],
-        [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
-        [{ text: '❓ Yordam' }],
-      ],
-      resize_keyboard: true,
-    };
-  } else {
-    return {
-      keyboard: [
-        [{ text: '📊 Buyurtmalar' }, { text: '📈 Hisobotlar' }],
-        [{ text: '👥 Foydalanuvchilar' }, { text: '🔔 Xabarnomalar' }],
-        [{ text: '🚫 Buyurtmani boshqarish' }],
-        [{ text: '👤 Profil' }, { text: '❓ Yordam' }],
-      ],
-      resize_keyboard: true,
-    };
-  }
-}
 
 async function showOrderBanMenu(bot: TelegramBot, chatId: number) {
   const banned = await isOrderBanned();

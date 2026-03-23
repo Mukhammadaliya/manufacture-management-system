@@ -59,8 +59,8 @@ export const getMainKeyboard = (role: string): TelegramBot.ReplyKeyboardMarkup =
       keyboard: [
         [{ text: '📦 Yangi buyurtma' }, { text: '📊 Buyurtmalar' }],
         [{ text: '📈 Hisobotlar' }, { text: '👥 Foydalanuvchilar' }],
-        [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
-        [{ text: '❓ Yordam' }],
+        [{ text: '🔔 Xabarnomalar' }, { text: '🚫 Buyurtmani boshqarish' }],
+        [{ text: '👤 Profil' }, { text: '❓ Yordam' }],
       ],
       resize_keyboard: true,
     };
