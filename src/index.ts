@@ -12,6 +12,16 @@ import notificationRoutes from './routes/notificationRoutes';
 
 dotenv.config();
 
+// Global error handlers — prevents silent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
