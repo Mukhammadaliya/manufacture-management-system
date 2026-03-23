@@ -2,6 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { PrismaClient } from '@prisma/client';
 import logger from '../../utils/logger';
 import { formatDate, formatOrderNumber, getTodayDate, formatPrice } from '../utils/orderHelpers';
+import { getMainKeyboard } from '../utils/messages';
 
 const prisma = new PrismaClient();
 
@@ -308,16 +309,11 @@ export const confirmOrder = async (bot: TelegramBot, chatId: number) => {
   try {
     // Ban tekshiruvi
     if (await isOrderBanned()) {
+      const bannedSession = orderSessions.get(chatId);
+      const bannedRole = bannedSession?.forDistributorId ? 'PRODUCER' : 'DISTRIBUTOR';
       orderSessions.delete(chatId);
       await bot.sendMessage(chatId, '🚫 Buyurtma berish to\'xtatilgan. Buyurtmangiz bekor qilindi.', {
-        reply_markup: {
-          keyboard: [
-            [{ text: '📦 Yangi buyurtma' }, { text: '📋 Mening buyurtmalarim' }],
-            [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
-            [{ text: '❓ Yordam' }],
-          ],
-          resize_keyboard: true,
-        },
+        reply_markup: getMainKeyboard(bannedRole),
       });
       return;
     }
@@ -367,6 +363,7 @@ export const confirmOrder = async (bot: TelegramBot, chatId: number) => {
       },
     });
 
+    const userRole = session.forDistributorId ? 'PRODUCER' : 'DISTRIBUTOR';
     orderSessions.delete(chatId);
 
     let msg = `✅ Buyurtma yaratildi!\n\n`;
@@ -380,14 +377,7 @@ export const confirmOrder = async (bot: TelegramBot, chatId: number) => {
     msg += `\n💰 Jami: ${formatPrice(totalAmount)}`;
 
     await bot.sendMessage(chatId, msg, {
-      reply_markup: {
-        keyboard: [
-          [{ text: '📦 Yangi buyurtma' }, { text: '📋 Mening buyurtmalarim' }],
-          [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
-          [{ text: '❓ Yordam' }],
-        ],
-        resize_keyboard: true,
-      },
+      reply_markup: getMainKeyboard(userRole),
     });
 
     // Producerlarga notification yuborish
@@ -483,16 +473,11 @@ async function notifyProducers(bot: TelegramBot, order: any) {
 }
 
 export const cancelOrder = async (bot: TelegramBot, chatId: number) => {
+  const session = orderSessions.get(chatId);
+  const userRole = session?.forDistributorId ? 'PRODUCER' : 'DISTRIBUTOR';
   orderSessions.delete(chatId);
   await bot.sendMessage(chatId, '❌ Buyurtma bekor qilindi.', {
-    reply_markup: {
-      keyboard: [
-        [{ text: '📦 Yangi buyurtma' }, { text: '📋 Mening buyurtmalarim' }],
-        [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
-        [{ text: '❓ Yordam' }],
-      ],
-      resize_keyboard: true,
-    },
+    reply_markup: getMainKeyboard(userRole),
   });
 };
 
