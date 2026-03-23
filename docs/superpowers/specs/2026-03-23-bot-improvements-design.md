@@ -32,7 +32,8 @@ Distribyutor sifatida ro'yxatdan o'tib, ishlab chiqaruvchi tomonidan tasdiqlanga
 
 **Potentsial bug sabablar va tuzatishlar:**
 - `handleApproveUser` dagi `Number(user.telegramId)` — BigInt xavfsiz konvertatsiya
-- `parse_mode: 'Markdown'` ishlatilgan joylardagi maxsus belgilar (`_`, `*`, `[`, `]`) escape qilish — Telegram Markdown parse xatosi botni turib qoldirishi mumkin
+- `handleApproveUser` (1205-1211 qatorlar) — notification xabarida `**Tabriklaymiz!**` Markdown sintaksisi ishlatilgan, lekin `parse_mode: 'Markdown'` berilmagan. Tuzatish: `parse_mode: 'Markdown'` qo'shish
+- `parse_mode: 'Markdown'` ishlatilgan BOSHQA joylardagi maxsus belgilar (`_`, `*`, `[`, `]`) escape qilish — Telegram Markdown parse xatosi botni turib qoldirishi mumkin
 - Global `unhandledRejection` va `uncaughtException` handlerlar qo'shish (`src/index.ts`)
 
 **Tegishli fayllar:**
@@ -43,11 +44,11 @@ Distribyutor sifatida ro'yxatdan o'tib, ishlab chiqaruvchi tomonidan tasdiqlanga
 
 ### Log boshqaruv (tekin server himoyasi)
 
-AlwaysData tekin plani — disk 50% to'la. Winston logger konfiguratsiyasiga qo'shimchalar:
+AlwaysData tekin plani — disk 50% to'la. Hozirgi Winston logger konfiguratsiyasi o'zgartiriladi (mavjud qiymatlar: level=`info`, maxSize=5MB, maxFiles=5):
 
-- **Maksimal fayl hajmi:** 2MB per log file
-- **Maksimal fayllar soni:** 3 ta (eski loglar avtomatik o'chiriladi — rotation)
-- **Production da:** faqat `warn` va `error` darajasi yoziladi
+- **Maksimal fayl hajmi:** 2MB per log file (hozirgi 5MB dan kamaytiriladi)
+- **Maksimal fayllar soni:** 3 ta (hozirgi 5 dan kamaytiriladi, eski loglar avtomatik o'chiriladi — rotation)
+- **Production da:** faqat `warn` va `error` darajasi yoziladi (hozirgi `info` dan o'zgartiriladi)
 - **Debug loglar:** faqat `NODE_ENV=development` da yonadi
 - **Natija:** loglar maksimum ~6MB band qiladi
 
@@ -59,9 +60,9 @@ AlwaysData tekin plani — disk 50% to'la. Winston logger konfiguratsiyasiga qo'
 
 ### O'zgartirish
 
-Barcha fayllarda "Real Taste of Meat" → "NMM Group Bot" almashtiriladi. Emoji (`🥩`) o'zgarishsiz qoladi.
+Butun codebase bo'ylab "Real Taste of Meat" → "NMM Group Bot" almashtiriladi. Emoji (`🥩`) o'zgarishsiz qoladi. Implementatsiyada codebase-wide search (`grep -r`) qilinib, barcha occurrences topiladi (test fayllar, env namunalar ham).
 
-### Tegishli fayllar
+### Asosiy tegishli fayllar (to'liq ro'yxat search orqali aniqlanadi)
 
 | Fayl | O'zgartirish |
 |------|-------------|
@@ -111,7 +112,7 @@ interface OrderSession {
   userId: string;
   step: 'selecting_products' | 'entering_quantity';
   items: Array<{ productId, productName, unit, quantity, unitPrice }>;
-  currentPage: number;  // YANGI
+  currentPage: number;  // YANGI — boshlang'ich qiymati 0 (0-indexed)
   forDistributorId?: string;  // YANGI (4-bo'lim uchun)
 }
 ```
@@ -123,8 +124,9 @@ interface OrderSession {
 
 **Xatti-harakat:**
 - Sahifa o'zgarganda `editMessageReplyMarkup` bilan inline keyboard yangilanadi (yangi xabar yuborilmaydi)
-- Birinchi sahifada `⬅️` disabled, oxirgi sahifada `➡️` disabled
+- Birinchi sahifada (page=0) `⬅️` tugmasi ko'rsatilmaydi (olib tashlanadi), oxirgi sahifada `➡️` ko'rsatilmaydi
 - Mahsulot tanlanib, miqdor kiritilgandan keyin, foydalanuvchi oxirgi ko'rgan sahifaga qaytadi
+- **Edge case:** agar tanlangan mahsulotlar tufayli sahifalar soni kamayganda `currentPage` chegaradan chiqsa, `currentPage = Math.min(currentPage, maxPage)` bilan clamp qilinadi
 
 **Tegishli fayllar:**
 - `src/bot/handlers/orderHandler.ts` — `startNewOrder`, `selectProduct`, paginatsiya logikasi
@@ -153,17 +155,18 @@ Producer "📦 Yangi buyurtma" bosadi
 
 ### Texnik yechim
 
-- `startNewOrder` funksiyasi o'zgartiriladi:
-  - Agar user role `PRODUCER` yoki `ADMIN` → avval distribyutor tanlash bosqichi
-  - Agar `DISTRIBUTOR` → to'g'ridan-to'g'ri mahsulot tanlashga o'tadi
+- `startNewOrder` funksiyasi signaturesiga `userRole: string` parametri qo'shiladi: `startNewOrder(bot, chatId, userId, userRole)`
+- Agar `userRole === 'PRODUCER' || userRole === 'ADMIN'` → avval distribyutor tanlash bosqichi
+- Agar `userRole === 'DISTRIBUTOR'` → to'g'ridan-to'g'ri mahsulot tanlashga o'tadi
 - `OrderSession.forDistributorId` — tanlangan distribyutor ID si
 - Callback: `select_distributor:{userId}`
-- Buyurtma yaratilganda: `distributorId = forDistributorId`, `createdBy = producer.id`
+- Buyurtma yaratilganda: `distributorId = forDistributorId`, `createdBy = producer.id` (bot Prisma create call da ham `createdBy` to'g'ri set qilinadi)
 - Distribyutorga buyurtma haqida notification yuboriladi
 - Distribyutorlar soni ko'p bo'lsa — pagination logikasi qayta ishlatiladi (8 ta per sahifa)
 
 **Cheklovlar:**
 - Faqat `isActive: true` va `role: DISTRIBUTOR` foydalanuvchilar ko'rinadi
+- **Edge case:** agar faol distribyutorlar bo'lmasa — "Faol distribyutorlar topilmadi" xabari ko'rsatiladi
 
 **Tegishli fayllar:**
 - `src/bot/handlers/orderHandler.ts` — `startNewOrder` kengaytirish
@@ -182,7 +185,7 @@ Producer "📦 Yangi buyurtma" bosadi
 
 | # | Bosqich | Buyruq |
 |---|---------|--------|
-| 1 | SSH ulanish | `sshpass -p $PASSWORD ssh user@host` |
+| 1 | SSH ulanish | `appleboy/ssh-action` GitHub Action orqali (xavfsizroq) |
 | 2 | Kodni yangilash | `cd ~/app && git pull origin main` |
 | 3 | Dependencies | `npm ci --production=false` |
 | 4 | Build | `npm run build` |
@@ -196,9 +199,12 @@ Producer "📦 Yangi buyurtma" bosadi
 
 **Xavfsizlik:**
 - Parol faqat GitHub encrypted secrets da saqlanadi
+- `appleboy/ssh-action` GitHub Action ishlatiladi (`sshpass` o'rniga — xavfsizroq, parol process listing da ko'rinmaydi)
 - Workflow faqat `main` branch push da ishlaydi
 
-**Kelajakda:** AlwaysData API key olinsa, 6-bosqich ham avtomatlashtiriladi (`curl -X POST` bilan site restart).
+**Kelajakda:**
+- AlwaysData API key olinsa, 6-bosqich ham avtomatlashtiriladi (`curl -X POST` bilan site restart)
+- SSH key authentication ga o'tish tavsiya etiladi
 
 **Yangi fayl:** `.github/workflows/deploy.yml`
 
