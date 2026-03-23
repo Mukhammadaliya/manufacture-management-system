@@ -1204,10 +1204,11 @@ export async function handleApproveUser(
     try {
       await bot.sendMessage(
         Number(user.telegramId),
-        `✅ **Tabriklaymiz!**\n\n` +
+        `✅ *Tabriklaymiz!*\n\n` +
           `Sizning arizangiz tasdiqlandi.\n` +
-          `Endi botdan to'liq foydalanishingiz mumkin.\n\n` +
-          `Asosiy menyuni ochish uchun /start buyrug'ini yuboring.`
+          `Endi botdan to\'liq foydalanishingiz mumkin.\n\n` +
+          `Asosiy menyuni ochish uchun /start buyrug\'ini yuboring.`,
+        { parse_mode: 'Markdown' }
       );
     } catch (notifyError) {
       logger.warn(`Could not notify user ${user.telegramId}:`, notifyError);
