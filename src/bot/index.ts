@@ -770,13 +770,13 @@ bot.on('callback_query', async (query) => {
     }
 
     if (data === 'confirm_order') {
-      await confirmOrder(bot, chatId);
+      await confirmOrder(bot, chatId, user.role);
       await bot.answerCallbackQuery(query.id);
       return;
     }
 
     if (data === 'cancel_order') {
-      await cancelOrder(bot, chatId);
+      await cancelOrder(bot, chatId, user.role);
       await bot.answerCallbackQuery(query.id);
       return;
     }

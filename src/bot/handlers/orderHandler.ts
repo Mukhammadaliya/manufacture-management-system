@@ -305,12 +305,12 @@ export const enterQuantity = async (
   }
 };
 
-export const confirmOrder = async (bot: TelegramBot, chatId: number) => {
+export const confirmOrder = async (bot: TelegramBot, chatId: number, userRole?: string) => {
   try {
     // Ban tekshiruvi
     if (await isOrderBanned()) {
       const bannedSession = orderSessions.get(chatId);
-      const bannedRole = bannedSession?.forDistributorId ? 'PRODUCER' : 'DISTRIBUTOR';
+      const bannedRole = userRole || (bannedSession?.forDistributorId ? 'PRODUCER' : 'DISTRIBUTOR');
       orderSessions.delete(chatId);
       await bot.sendMessage(chatId, '🚫 Buyurtma berish to\'xtatilgan. Buyurtmangiz bekor qilindi.', {
         reply_markup: getMainKeyboard(bannedRole),
@@ -363,7 +363,7 @@ export const confirmOrder = async (bot: TelegramBot, chatId: number) => {
       },
     });
 
-    const userRole = session.forDistributorId ? 'PRODUCER' : 'DISTRIBUTOR';
+    const role = userRole || (session.forDistributorId ? 'PRODUCER' : 'DISTRIBUTOR');
     orderSessions.delete(chatId);
 
     let msg = `✅ Buyurtma yaratildi!\n\n`;
@@ -377,7 +377,7 @@ export const confirmOrder = async (bot: TelegramBot, chatId: number) => {
     msg += `\n💰 Jami: ${formatPrice(totalAmount)}`;
 
     await bot.sendMessage(chatId, msg, {
-      reply_markup: getMainKeyboard(userRole),
+      reply_markup: getMainKeyboard(role),
     });
 
     // Producerlarga notification yuborish
@@ -472,12 +472,12 @@ async function notifyProducers(bot: TelegramBot, order: any) {
   }
 }
 
-export const cancelOrder = async (bot: TelegramBot, chatId: number) => {
+export const cancelOrder = async (bot: TelegramBot, chatId: number, userRole?: string) => {
   const session = orderSessions.get(chatId);
-  const userRole = session?.forDistributorId ? 'PRODUCER' : 'DISTRIBUTOR';
+  const role = userRole || (session?.forDistributorId ? 'PRODUCER' : 'DISTRIBUTOR');
   orderSessions.delete(chatId);
   await bot.sendMessage(chatId, '❌ Buyurtma bekor qilindi.', {
-    reply_markup: getMainKeyboard(userRole),
+    reply_markup: getMainKeyboard(role),
   });
 };
 
