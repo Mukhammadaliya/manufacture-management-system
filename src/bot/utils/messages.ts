@@ -57,9 +57,10 @@ export const getMainKeyboard = (role: string): TelegramBot.ReplyKeyboardMarkup =
   } else if (role === 'PRODUCER' || role === 'ADMIN') {
     return {
       keyboard: [
-        [{ text: '📊 Buyurtmalar' }, { text: '📈 Hisobotlar' }],
-        [{ text: '👥 Foydalanuvchilar' }, { text: '🔔 Xabarnomalar' }],  // <-- Yangi qator
-        [{ text: '👤 Profil' }, { text: '❓ Yordam' }],
+        [{ text: '📦 Yangi buyurtma' }, { text: '📊 Buyurtmalar' }],
+        [{ text: '📈 Hisobotlar' }, { text: '👥 Foydalanuvchilar' }],
+        [{ text: '🔔 Xabarnomalar' }, { text: '👤 Profil' }],
+        [{ text: '❓ Yordam' }],
       ],
       resize_keyboard: true,
     };
