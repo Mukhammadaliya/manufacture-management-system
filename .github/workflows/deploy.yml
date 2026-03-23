@@ -42,4 +42,3 @@ jobs:
           script: |
             cd ~/app
             git pull origin main
-            npx prisma migrate deploy
