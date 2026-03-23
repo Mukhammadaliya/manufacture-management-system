@@ -3,7 +3,7 @@
 export const MESSAGES = {
   WELCOME: (name: string) => `Assalomu alaykum, ${name}! 👋
 
-🥩 Real Taste of Meat - Buyurtmalar botiga xush kelibsiz!
+🥩 NMM Group Bot - Buyurtmalar botiga xush kelibsiz!
 
 Bu bot orqali siz:
 ✅ Buyurtma berishingiz

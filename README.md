@@ -1,10 +1,10 @@
-# 🥩 Real Taste of Meat - Manufacture Management System
+# 🥩 NMM Group Bot - Manufacture Management System
 
 Kolbasa va go'sht mahsulotlari ishlab chiqarish sexining buyurtmalarni boshqarish tizimi.
 
 ## 🎯 Loyiha Haqida
 
-Bu tizim Real Taste of Meat kompaniyasi uchun buyurtmalarni qabul qilish, ishlab chiqarishni rejalashtirish va distributorlar bilan aloqani avtomatlashtirishga mo'ljallangan.
+Bu tizim NMM Group Bot kompaniyasi uchun buyurtmalarni qabul qilish, ishlab chiqarishni rejalashtirish va distributorlar bilan aloqani avtomatlashtirishga mo'ljallangan.
 
 ## ✨ Asosiy Funksiyalar
 
@@ -188,7 +188,7 @@ manufacture-management-system/
 
 ## 📄 License
 
-Private - Real Taste of Meat Company
+Private - NMM Group Company
 
 ## 📞 Contact
 
