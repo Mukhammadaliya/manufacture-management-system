@@ -49,5 +49,6 @@ jobs:
             cd ~/app
             tar xzf node_modules.tar.gz
             rm node_modules.tar.gz
-            git pull origin main
-            cd ~/app && npx prisma migrate deploy
+            git fetch origin main
+            git reset --hard origin/main
+            npx prisma migrate deploy
