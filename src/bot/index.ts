@@ -477,7 +477,8 @@ bot.on('message', async (msg) => {
         return;
       }
 
-      const customDate = new Date(text);
+      const [y, m, d] = text.split('-').map(Number);
+      const customDate = new Date(Date.UTC(y, m - 1, d));
 
       if (isNaN(customDate.getTime())) {
         await bot.sendMessage(chatId, '❌ Noto\'g\'ri sana. Iltimos, qaytadan kiriting:');
@@ -529,7 +530,7 @@ bot.on('message', async (msg) => {
         return;
       }
       const [y, m, d] = text.split('-').map(Number);
-      const date = new Date(y, m - 1, d); // local midnight, avoids UTC offset issue
+      const date = new Date(Date.UTC(y, m - 1, d));
       if (isNaN(date.getTime())) {
         await bot.sendMessage(chatId, '❌ Noto\'g\'ri sana. Qaytadan kiriting:');
         return;

@@ -789,11 +789,11 @@ export async function handleDailySummary(
 ) {
   try {
     const targetDate = date || getTodayDate();
-    const start = new Date(
-      targetDate.getFullYear(),
-      targetDate.getMonth(),
-      targetDate.getDate()
-    );
+    const start = new Date(Date.UTC(
+      targetDate.getUTCFullYear(),
+      targetDate.getUTCMonth(),
+      targetDate.getUTCDate()
+    ));
     const end = new Date(start.getTime() + ONE_DAY_MS);
 
     const orders = await prisma.order.findMany({
