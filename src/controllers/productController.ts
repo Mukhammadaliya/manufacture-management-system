@@ -15,6 +15,7 @@ export const getAllProducts = asyncHandler(
       where: {
         ...(isActive !== undefined && { isActive: isActive === 'true' }),
       },
+      include: { measure: true },
       orderBy: { name: 'asc' },
     });
 
@@ -35,6 +36,7 @@ export const getProductById = asyncHandler(
 
     const product = await prisma.product.findUnique({
       where: { id },
+      include: { measure: true },
     });
 
     if (!product) {
@@ -51,7 +53,7 @@ export const getProductById = asyncHandler(
 // Yangi mahsulot yaratish
 export const createProduct = asyncHandler(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { name, code, unit, price } = req.body;
+    const { name, code, measureId, price } = req.body;
     const user = req.user!;
 
     // price validatsiyasi
@@ -73,11 +75,12 @@ export const createProduct = asyncHandler(
       data: {
         name,
         code,
-        unit,
+        measureId,
         price: parsedPrice,
         createdBy: user.id,
         updatedBy: user.id,
       },
+      include: { measure: true },
     });
 
     logger.info(`Product created: ${product.name} (${product.code})`);
@@ -94,7 +97,7 @@ export const createProduct = asyncHandler(
 export const updateProduct = asyncHandler(
   async (req: Request, res: Response, next: NextFunction) => {
     const { id } = req.params;
-    const { name, code, unit, price, isActive } = req.body;
+    const { name, code, measureId, price, isActive } = req.body;
     const user = req.user!;
 
     // Mahsulot mavjudligini tekshirish
@@ -130,11 +133,12 @@ export const updateProduct = asyncHandler(
       data: {
         ...(name && { name }),
         ...(code && { code }),
-        ...(unit && { unit }),
+        ...(measureId && { measureId }),
         ...(price !== undefined && { price: parseFloat(price) }),
         ...(isActive !== undefined && { isActive }),
         updatedBy: user.id,
       },
+      include: { measure: true },
     });
 
     logger.info(`Product updated: ${product.name} (${product.code})`);

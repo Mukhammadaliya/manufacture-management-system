@@ -28,12 +28,6 @@ jest.mock('@prisma/client', () => {
     ADMIN: 'ADMIN',
   };
 
-  // ProductUnit enum
-  const ProductUnit = {
-    KG: 'KG',
-    PIECE: 'PIECE',
-  };
-
   // NotificationType enum
   const NotificationType = {
     ORDER_STATUS: 'ORDER_STATUS',
@@ -103,6 +97,13 @@ jest.mock('@prisma/client', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    measure: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      upsert: jest.fn(),
+      deleteMany: jest.fn(),
+    },
     $disconnect: jest.fn(),
   };
 
@@ -110,7 +111,6 @@ jest.mock('@prisma/client', () => {
     PrismaClient: jest.fn(() => mockPrismaClient),
     OrderStatus,
     UserRole,
-    ProductUnit,
     NotificationType,
     ProductionBatchStatus,
   };

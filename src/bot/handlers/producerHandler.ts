@@ -100,7 +100,7 @@ export async function handleViewOrders(
       include: {
         distributor: true,
         items: {
-          include: { product: true },
+          include: { product: { include: { measure: true } } },
         },
       },
       orderBy: { orderSeq: 'desc' },
@@ -185,7 +185,7 @@ export async function handleViewOrdersByDateAndStatus(
       where,
       include: {
         distributor: true,
-        items: { include: { product: true } },
+        items: { include: { product: { include: { measure: true } } } },
       },
       orderBy: { orderSeq: 'desc' },
       take: 20,
@@ -247,7 +247,7 @@ export async function handleViewOrderDetail(
       where: { id: orderId },
       include: {
         distributor: true,
-        items: { include: { product: true } },
+        items: { include: { product: { include: { measure: true } } } },
       },
     });
 
@@ -269,7 +269,7 @@ export async function handleViewOrderDetail(
 
     order.items.forEach((item, index) => {
       message += `${index + 1}. ${item.product.name}\n`;
-      message += `   📊 Miqdor: ${item.quantity} ${item.product.unit}\n`;
+      message += `   📊 Miqdor: ${item.quantity} ${item.product.measure.shortName}\n`;
       message += `   💰 Narx: ${formatPrice(item.unitPrice)}\n`;
       message += `   💵 Jami: ${formatPrice(item.totalPrice)}\n`;
       message += '\n';
@@ -409,7 +409,7 @@ export async function handleEditQuantities(
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: { include: { product: true } } },
+      include: { items: { include: { product: { include: { measure: true } } } } },
     });
 
     if (!order) {
@@ -424,7 +424,7 @@ export async function handleEditQuantities(
 
     const keyboard: TelegramBot.InlineKeyboardButton[][] = order.items.map((item) => [
       {
-        text: `${item.product.name} (${item.quantity} ${item.product.unit})`,
+        text: `${item.product.name} (${item.quantity} ${item.product.measure.shortName})`,
         callback_data: `edit_item_qty_${item.id}`,
       },
     ]);
@@ -451,7 +451,7 @@ export async function handleEditPrices(
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: { include: { product: true } } },
+      include: { items: { include: { product: { include: { measure: true } } } } },
     });
 
     if (!order) {
@@ -496,7 +496,7 @@ export async function handleUpdateItemQty(
   try {
     const item = await prisma.orderItem.findUnique({
       where: { id: itemId },
-      include: { product: true, order: { include: { distributor: true } } },
+      include: { product: { include: { measure: true } }, order: { include: { distributor: true } } },
     });
 
     if (!item) {
@@ -521,12 +521,12 @@ export async function handleUpdateItemQty(
       bot,
       item.order.distributorId,
       orderId,
-      `${formatOrderNumber(item.order.orderSeq)} buyurtmadagi ${item.product.name} miqdori ${newQty} ${item.product.unit} ga o'zgartirildi.`
+      `${formatOrderNumber(item.order.orderSeq)} buyurtmadagi ${item.product.name} miqdori ${newQty} ${item.product.measure.shortName} ga o'zgartirildi.`
     );
 
     await bot.sendMessage(
       chatId,
-      `✅ Miqdor yangilandi: ${item.product.name} — ${newQty} ${item.product.unit}`,
+      `✅ Miqdor yangilandi: ${item.product.name} — ${newQty} ${item.product.measure.shortName}`,
       {
         reply_markup: {
           inline_keyboard: [[{ text: '🔙 Buyurtmaga qaytish', callback_data: `view_order_${orderId}` }]],
@@ -554,7 +554,7 @@ export async function handleUpdateItemPrice(
   try {
     const item = await prisma.orderItem.findUnique({
       where: { id: itemId },
-      include: { product: true, order: { include: { distributor: true } } },
+      include: { product: { include: { measure: true } }, order: { include: { distributor: true } } },
     });
 
     if (!item) {
@@ -801,7 +801,7 @@ export async function handleDailySummary(
         orderDate: { gte: start, lt: end },
         status: { not: 'CANCELLED' },
       },
-      include: { items: { include: { product: true } } },
+      include: { items: { include: { product: { include: { measure: true } } } } },
     });
 
     if (orders.length === 0) {
@@ -822,7 +822,7 @@ export async function handleDailySummary(
           productSummary[productId] = {
             name: item.product.name,
             code: item.product.code,
-            unit: item.product.unit,
+            unit: item.product.measure.shortName,
             total: 0,
             count: 0,
           };
@@ -893,7 +893,7 @@ export async function handleDeleteItem(
     const item = await prisma.orderItem.findUnique({
       where: { id: itemId },
       include: {
-        product: true,
+        product: { include: { measure: true } },
         order: { include: { distributor: true, items: true } },
       },
     });
@@ -915,7 +915,7 @@ export async function handleDeleteItem(
       `⚠️ **Mahsulotni o'chirish**\n\n` +
       `📋 Buyurtma: ${formatOrderNumber(item.order.orderSeq)}\n` +
       `📦 Mahsulot: ${item.product.name}\n` +
-      `📊 Miqdor: ${item.quantity} ${item.product.unit}\n\n` +
+      `📊 Miqdor: ${item.quantity} ${item.product.measure.shortName}\n\n` +
       `Rostdan ham bu mahsulotni o'chirmoqchimisiz?`;
 
     const keyboard: TelegramBot.InlineKeyboardButton[][] = [
@@ -946,7 +946,7 @@ export async function handleConfirmDeleteItem(
   try {
     const item = await prisma.orderItem.findUnique({
       where: { id: itemId },
-      include: { product: true, order: { include: { distributor: true } } },
+      include: { product: { include: { measure: true } }, order: { include: { distributor: true } } },
     });
 
     if (!item) {
@@ -998,7 +998,7 @@ export async function handleDeleteOrder(
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { distributor: true, items: { include: { product: true } } },
+      include: { distributor: true, items: { include: { product: { include: { measure: true } } } } },
     });
 
     if (!order) {

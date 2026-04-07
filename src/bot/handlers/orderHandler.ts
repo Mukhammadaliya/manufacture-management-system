@@ -141,6 +141,7 @@ export const startNewOrder = async (bot: TelegramBot, chatId: number, userId: st
 async function showProductPage(bot: TelegramBot, chatId: number, userId: string, forDistributorId?: string) {
   const products = await prisma.product.findMany({
     where: { isActive: true },
+    include: { measure: true },
     orderBy: { name: 'asc' },
   });
 
@@ -203,6 +204,7 @@ export const handlePageNavigation = async (
 
     const products = await prisma.product.findMany({
       where: { isActive: true },
+      include: { measure: true },
       orderBy: { name: 'asc' },
     });
 
@@ -234,7 +236,7 @@ export const selectProduct = async (
       return;
     }
 
-    const product = await prisma.product.findUnique({ where: { id: productId } });
+    const product = await prisma.product.findUnique({ where: { id: productId }, include: { measure: true } });
     if (!product) {
       await bot.sendMessage(chatId, '❌ Mahsulot topilmadi.');
       return;
@@ -244,14 +246,14 @@ export const selectProduct = async (
     session.items.push({
       productId: product.id,
       productName: product.name,
-      unit: product.unit,
+      unit: product.measure.shortName,
       quantity: 0,
       unitPrice: Number(product.price),
     });
     orderSessions.set(chatId, session);
 
     await bot.editMessageText(
-      `📦 ${product.name}\n💰 ${formatPrice(product.price)}\n\n🔢 Miqdorni kiriting (${product.unit}):`,
+      `📦 ${product.name}\n💰 ${formatPrice(product.price)}\n\n🔢 Miqdorni kiriting (${product.measure.shortName}):`,
       {
         chat_id: chatId,
         message_id: messageId,
@@ -281,6 +283,7 @@ export const enterQuantity = async (
 
     const products = await prisma.product.findMany({
       where: { isActive: true },
+      include: { measure: true },
       orderBy: { name: 'asc' },
     });
 
@@ -350,7 +353,7 @@ export const confirmOrder = async (bot: TelegramBot, chatId: number, userRole?: 
         },
       },
       include: {
-        items: { include: { product: true } },
+        items: { include: { product: { include: { measure: true } } } },
       },
     });
 
@@ -372,7 +375,7 @@ export const confirmOrder = async (bot: TelegramBot, chatId: number, userRole?: 
     msg += `⏳ Kutilmoqda\n\n`;
     msg += `📦 Mahsulotlar:\n`;
     order.items.forEach((item, i) => {
-      msg += `${i + 1}. ${item.product.name} — ${item.quantity} ${item.product.unit}\n`;
+      msg += `${i + 1}. ${item.product.name} — ${item.quantity} ${item.product.measure.shortName}\n`;
     });
     msg += `\n💰 Jami: ${formatPrice(totalAmount)}`;
 

@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole, ProductUnit, OrderStatus } from '@prisma/client';
+import { PrismaClient, UserRole, OrderStatus } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -12,7 +12,24 @@ async function main() {
   await prisma.order.deleteMany({});
   await prisma.notification.deleteMany({});
   await prisma.product.deleteMany({});
+  await prisma.measure.deleteMany({});
   console.log('✅ Tozalandi');
+
+  // 0. O'lchov birliklarini yaratish
+  console.log('📏 O\'lchov birliklari yaratilmoqda...');
+
+  await prisma.measure.upsert({
+    where: { id: 1 },
+    update: { name: 'Dona', shortName: 'dona' },
+    create: { id: 1, name: 'Dona', shortName: 'dona' },
+  });
+  await prisma.measure.upsert({
+    where: { id: 2 },
+    update: { name: 'Kilogramm', shortName: 'kg' },
+    create: { id: 2, name: 'Kilogramm', shortName: 'kg' },
+  });
+
+  console.log('✅ O\'lchov birliklari yaratildi');
 
   // 1. Foydalanuvchilarni yaratish (Admin va Producer)
   console.log('👤 Foydalanuvchilar yaratilmoqda...');
@@ -48,76 +65,79 @@ async function main() {
   // 2. Mahsulotlarni yaratish (faqat mahsulotlar, default data yo'q)
   console.log('📦 Mahsulotlar yaratilmoqda...');
 
+  const DONA = 1;
+  const KG = 2;
+
   const productData = [
-    // === BAZARSKI ===
-    { code: 'BAZARSKI-05', name: 'Bazarski 0.5', unit: ProductUnit.KG, price: 0 },
-    { code: 'BAZARSKI-06', name: 'Bazarski 0.6', unit: ProductUnit.KG, price: 0 },
-    { code: 'BAZARSKI-NEW-05', name: 'Bazarski New 0.5', unit: ProductUnit.KG, price: 0 },
-    { code: 'BAZARSKI-NEW-06', name: 'Bazarski New 0.6', unit: ProductUnit.KG, price: 0 },
+    // === BAZARSKI === (dona)
+    { code: 'BAZARSKI-05', name: 'Bazarski 0.5', measureId: DONA, price: 0 },
+    { code: 'BAZARSKI-06', name: 'Bazarski 0.6', measureId: DONA, price: 0 },
+    { code: 'BAZARSKI-NEW-05', name: 'Bazarski New 0.5', measureId: DONA, price: 0 },
+    { code: 'BAZARSKI-NEW-06', name: 'Bazarski New 0.6', measureId: DONA, price: 0 },
 
-    // === BAVARSKI ===
-    { code: 'BAVARSKI-05', name: 'Bavarski 0.5', unit: ProductUnit.KG, price: 0 },
-    { code: 'BAVARSKI-06', name: 'Bavarski 0.6', unit: ProductUnit.KG, price: 0 },
+    // === BAVARSKI === (dona)
+    { code: 'BAVARSKI-05', name: 'Bavarski 0.5', measureId: DONA, price: 0 },
+    { code: 'BAVARSKI-06', name: 'Bavarski 0.6', measureId: DONA, price: 0 },
 
-    // === YANGI TOSHKENT ===
-    { code: 'YANGI-TOSHKENT-06', name: 'Yangi toshkent 0.6', unit: ProductUnit.KG, price: 0 },
+    // === YANGI TOSHKENT === (dona)
+    { code: 'YANGI-TOSHKENT-06', name: 'Yangi toshkent 0.6', measureId: DONA, price: 0 },
 
-    // === DOKTOR / ZAFTRK ===
-    { code: 'DOKTOR', name: 'Doktor', unit: ProductUnit.KG, price: 0 },
-    { code: 'ZAFTRK', name: 'Zaftrk', unit: ProductUnit.KG, price: 0 },
-    { code: 'DOKTOR-ARZON', name: 'Doktor arzon', unit: ProductUnit.KG, price: 0 },
-    { code: 'ZAFTRK-ARZON', name: 'Zaftrk arzon', unit: ProductUnit.KG, price: 0 },
+    // === DOKTOR / ZAFTRK === (kg)
+    { code: 'DOKTOR', name: 'Doktor', measureId: KG, price: 0 },
+    { code: 'ZAFTRK', name: 'Zaftrk', measureId: KG, price: 0 },
+    { code: 'DOKTOR-ARZON', name: 'Doktor arzon', measureId: KG, price: 0 },
+    { code: 'ZAFTRK-ARZON', name: 'Zaftrk arzon', measureId: KG, price: 0 },
 
-    // === SASISKA / TIGR ===
-    { code: 'SASISKA', name: 'Sasiska', unit: ProductUnit.KG, price: 0 },
-    { code: 'TIGR', name: 'Tigr', unit: ProductUnit.KG, price: 0 },
-    { code: 'SASISKA-ARZON', name: 'Sasiska arzon', unit: ProductUnit.KG, price: 0 },
-    { code: 'TIGR-ARZON', name: 'Tigr arzon', unit: ProductUnit.KG, price: 0 },
+    // === SASISKA / TIGR === (kg)
+    { code: 'SASISKA', name: 'Sasiska', measureId: KG, price: 0 },
+    { code: 'TIGR', name: 'Tigr', measureId: KG, price: 0 },
+    { code: 'SASISKA-ARZON', name: 'Sasiska arzon', measureId: KG, price: 0 },
+    { code: 'TIGR-ARZON', name: 'Tigr arzon', measureId: KG, price: 0 },
 
-    // === TALLIN / JORJ ===
-    { code: 'TALLIN', name: 'Tallin', unit: ProductUnit.KG, price: 0 },
-    { code: 'JORJ', name: 'Jorj', unit: ProductUnit.KG, price: 0 },
+    // === TALLIN / JORJ === (kg)
+    { code: 'TALLIN', name: 'Tallin', measureId: KG, price: 0 },
+    { code: 'JORJ', name: 'Jorj', measureId: KG, price: 0 },
 
-    // === BOMBA / BREND ===
-    { code: 'MAHKAMOV-BOMBA', name: 'Mahkamov bomba', unit: ProductUnit.KG, price: 0 },
-    { code: 'ARQON-BOMBA', name: 'Arqon bomba', unit: ProductUnit.KG, price: 0 },
-    { code: 'MAHKAMOV-BREND', name: 'Mahkamov brend', unit: ProductUnit.KG, price: 0 },
-    { code: 'SERVELAT-BOMBA', name: 'Servelat bomba', unit: ProductUnit.KG, price: 0 },
+    // === BOMBA / BREND === (kg)
+    { code: 'MAHKAMOV-BOMBA', name: 'Mahkamov bomba', measureId: KG, price: 0 },
+    { code: 'ARQON-BOMBA', name: 'Arqon bomba', measureId: KG, price: 0 },
+    { code: 'MAHKAMOV-BREND', name: 'Mahkamov brend', measureId: KG, price: 0 },
+    { code: 'SERVELAT-BOMBA', name: 'Servelat bomba', measureId: KG, price: 0 },
 
-    // === SER AZ (turli o'lchamlar) ===
-    { code: 'SER-AZ-03', name: 'Ser az 0.3', unit: ProductUnit.KG, price: 0 },
-    { code: 'SER-AZ-04', name: 'Ser az 0.4', unit: ProductUnit.KG, price: 0 },
-    { code: 'SER-AZ-05-ING', name: 'Ser az 0.5 ingichka', unit: ProductUnit.KG, price: 0 },
-    { code: 'SER-AZ-05-QAL', name: 'Ser az 0.5 qalin', unit: ProductUnit.KG, price: 0 },
-    { code: 'SER-AZ-06-ING', name: 'Ser az 0.6 ingichka', unit: ProductUnit.KG, price: 0 },
-    { code: 'SER-AZ-06-QAL', name: 'Ser az 0.6 qalin', unit: ProductUnit.KG, price: 0 },
-    { code: 'SER-AZ-07-ING', name: 'Ser az 0.7 ingichka', unit: ProductUnit.KG, price: 0 },
-    { code: 'SER-AZ-07-QAL', name: 'Ser az 0.7 qalin', unit: ProductUnit.KG, price: 0 },
-    { code: 'SER-AZ-08', name: 'Ser az 0.8', unit: ProductUnit.KG, price: 0 },
+    // === SER AZ (turli o'lchamlar) === (dona)
+    { code: 'SER-AZ-03', name: 'Ser az 0.3', measureId: DONA, price: 0 },
+    { code: 'SER-AZ-04', name: 'Ser az 0.4', measureId: DONA, price: 0 },
+    { code: 'SER-AZ-05-ING', name: 'Ser az 0.5 ingichka', measureId: DONA, price: 0 },
+    { code: 'SER-AZ-05-QAL', name: 'Ser az 0.5 qalin', measureId: DONA, price: 0 },
+    { code: 'SER-AZ-06-ING', name: 'Ser az 0.6 ingichka', measureId: DONA, price: 0 },
+    { code: 'SER-AZ-06-QAL', name: 'Ser az 0.6 qalin', measureId: DONA, price: 0 },
+    { code: 'SER-AZ-07-ING', name: 'Ser az 0.7 ingichka', measureId: DONA, price: 0 },
+    { code: 'SER-AZ-07-QAL', name: 'Ser az 0.7 qalin', measureId: DONA, price: 0 },
+    { code: 'SER-AZ-08', name: 'Ser az 0.8', measureId: DONA, price: 0 },
 
-    // === RAMAZON ===
-    { code: 'RAMAZON-08', name: 'Ramazon 0.8', unit: ProductUnit.KG, price: 0 },
+    // === RAMAZON === (dona)
+    { code: 'RAMAZON-08', name: 'Ramazon 0.8', measureId: DONA, price: 0 },
 
-    // === BOSHQALAR ===
-    { code: 'INDEYKA', name: 'Indeyka', unit: ProductUnit.KG, price: 0 },
-    { code: 'YANGILIK-GOSHT', name: 'Yangilik gosht', unit: ProductUnit.KG, price: 0 },
-    { code: 'POKON', name: 'Pokon', unit: ProductUnit.KG, price: 0 },
-    { code: 'POKON-ARZON', name: 'Pokon arzon', unit: ProductUnit.KG, price: 0 },
+    // === BOSHQALAR === (kg)
+    { code: 'INDEYKA', name: 'Indeyka', measureId: KG, price: 0 },
+    { code: 'YANGILIK-GOSHT', name: 'Yangilik gosht', measureId: KG, price: 0 },
+    { code: 'POKON', name: 'Pokon', measureId: KG, price: 0 },
+    { code: 'POKON-ARZON', name: 'Pokon arzon', measureId: KG, price: 0 },
 
-    // === SALYAMI ===
-    { code: 'SALYAMI-05', name: 'Salyami 0.5', unit: ProductUnit.KG, price: 0 },
-    { code: 'SALYAMI-06', name: 'Salyami 0.6', unit: ProductUnit.KG, price: 0 },
+    // === SALYAMI === (kg)
+    { code: 'SALYAMI-05', name: 'Salyami 0.5', measureId: KG, price: 0 },
+    { code: 'SALYAMI-06', name: 'Salyami 0.6', measureId: KG, price: 0 },
 
-    // === SETKA ===
-    { code: 'SETKA-03', name: 'Setka 0.3', unit: ProductUnit.KG, price: 0 },
-    { code: 'SETKA-04', name: 'Setka 0.4', unit: ProductUnit.KG, price: 0 },
+    // === SETKA === (kg)
+    { code: 'SETKA-03', name: 'Setka 0.3', measureId: KG, price: 0 },
+    { code: 'SETKA-04', name: 'Setka 0.4', measureId: KG, price: 0 },
 
-    // === QOLGAN MAHSULOTLAR ===
-    { code: 'BATON-BOMBA', name: 'Baton bomba', unit: ProductUnit.KG, price: 0 },
-    { code: 'GARADSKOY', name: 'Garadskoy', unit: ProductUnit.KG, price: 0 },
-    { code: 'CHIMKENT', name: 'Chimkent', unit: ProductUnit.KG, price: 0 },
-    { code: 'ESTON', name: 'Eston', unit: ProductUnit.KG, price: 0 },
-    { code: 'PRIMA', name: 'Prima', unit: ProductUnit.KG, price: 0 },
+    // === QOLGAN MAHSULOTLAR === (kg)
+    { code: 'BATON-BOMBA', name: 'Baton bomba', measureId: KG, price: 0 },
+    { code: 'GARADSKOY', name: 'Garadskoy', measureId: KG, price: 0 },
+    { code: 'CHIMKENT', name: 'Chimkent', measureId: KG, price: 0 },
+    { code: 'ESTON', name: 'Eston', measureId: KG, price: 0 },
+    { code: 'PRIMA', name: 'Prima', measureId: KG, price: 0 },
   ];
 
   let createdCount = 0;
@@ -126,7 +146,7 @@ async function main() {
       where: { code: p.code },
       update: {
         name: p.name,
-        unit: p.unit,
+        measureId: p.measureId,
         updatedBy: admin.id,
       },
       create: {

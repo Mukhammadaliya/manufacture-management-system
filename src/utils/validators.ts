@@ -24,7 +24,7 @@ export const createProductSchema = z.object({
   body: z.object({
     name: z.string().min(3, 'Nomi kamida 3 ta belgidan iborat bo\'lishi kerak'),
     code: z.string().min(3, 'Kod kamida 3 ta belgidan iborat bo\'lishi kerak'),
-    unit: z.enum(['KG', 'PIECE']),
+    measureId: z.number().int().positive('O\'lchov birligi tanlanishi kerak'),
   }),
 });
 

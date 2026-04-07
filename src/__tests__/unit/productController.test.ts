@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient, User, ProductUnit } from '@prisma/client';
+import { PrismaClient, User } from '@prisma/client';
 
 // Mock logger
 jest.mock('../../utils/logger', () => ({
@@ -92,7 +92,8 @@ describe('Product Controller Tests', () => {
           id: 'product-1',
           name: 'Mol go\'shti kolbasa',
           code: 'KOLB-001',
-          unit: 'KG' as ProductUnit,
+          measureId: 2,
+          measure: { id: 2, name: 'Kilogramm', shortName: 'kg' },
           price: 50000,
           isActive: true,
           createdAt: new Date(),
@@ -104,7 +105,8 @@ describe('Product Controller Tests', () => {
           id: 'product-2',
           name: 'Tovuq kolbasa',
           code: 'KOLB-002',
-          unit: 'KG' as ProductUnit,
+          measureId: 2,
+          measure: { id: 2, name: 'Kilogramm', shortName: 'kg' },
           price: 35000,
           isActive: true,
           createdAt: new Date(),
@@ -124,6 +126,7 @@ describe('Product Controller Tests', () => {
 
       expect(mockPrisma.product.findMany).toHaveBeenCalledWith({
         where: {},
+        include: { measure: true },
         orderBy: { name: 'asc' },
       });
 
@@ -163,7 +166,8 @@ describe('Product Controller Tests', () => {
         id: 'product-1',
         name: 'Mol go\'shti kolbasa',
         code: 'KOLB-001',
-        unit: 'KG' as ProductUnit,
+        measureId: 2,
+        measure: { id: 2, name: 'Kilogramm', shortName: 'kg' },
         price: 50000,
         isActive: true,
         createdAt: new Date(),
@@ -182,6 +186,7 @@ describe('Product Controller Tests', () => {
 
       expect(mockPrisma.product.findUnique).toHaveBeenCalledWith({
         where: { id: 'product-1' },
+        include: { measure: true },
       });
 
       expect(mockResponse.json).toHaveBeenCalledWith({
@@ -210,7 +215,7 @@ describe('Product Controller Tests', () => {
       mockRequest.body = {
         name: 'Yangi kolbasa',
         code: 'KOLB-003',
-        unit: 'KG',
+        measureId: 2,
         price: 45000,
       };
 
@@ -218,7 +223,8 @@ describe('Product Controller Tests', () => {
         id: 'product-3',
         name: 'Yangi kolbasa',
         code: 'KOLB-003',
-        unit: 'KG' as ProductUnit,
+        measureId: 2,
+        measure: { id: 2, name: 'Kilogramm', shortName: 'kg' },
         price: 45000,
         isActive: true,
         createdAt: new Date(),
@@ -240,11 +246,12 @@ describe('Product Controller Tests', () => {
         data: {
           name: 'Yangi kolbasa',
           code: 'KOLB-003',
-          unit: 'KG',
+          measureId: 2,
           price: 45000,
           createdBy: 'user-123',
           updatedBy: 'user-123',
         },
+        include: { measure: true },
       });
 
       expect(mockResponse.status).toHaveBeenCalledWith(201);
@@ -259,14 +266,15 @@ describe('Product Controller Tests', () => {
       mockRequest.body = {
         name: 'Narxsiz kolbasa',
         code: 'KOLB-004',
-        unit: 'KG',
+        measureId: 2,
       };
 
       const mockCreatedProduct = {
         id: 'product-4',
         name: 'Narxsiz kolbasa',
         code: 'KOLB-004',
-        unit: 'KG' as ProductUnit,
+        measureId: 2,
+        measure: { id: 2, name: 'Kilogramm', shortName: 'kg' },
         price: 0,
         isActive: true,
         createdAt: new Date(),
@@ -288,6 +296,7 @@ describe('Product Controller Tests', () => {
         data: expect.objectContaining({
           price: 0,
         }),
+        include: { measure: true },
       });
     });
 
@@ -295,7 +304,7 @@ describe('Product Controller Tests', () => {
       mockRequest.body = {
         name: 'Salbiy narxli mahsulot',
         code: 'KOLB-005',
-        unit: 'KG',
+        measureId: 2,
         price: -100,
       };
 
@@ -314,7 +323,7 @@ describe('Product Controller Tests', () => {
       mockRequest.body = {
         name: 'Yangi kolbasa',
         code: 'KOLB-001',
-        unit: 'KG',
+        measureId: 2,
       };
 
       const existingProduct = {
@@ -370,6 +379,7 @@ describe('Product Controller Tests', () => {
           name: 'Yangilangan kolbasa',
           updatedBy: 'user-123',
         },
+        include: { measure: true },
       });
 
       expect(mockResponse.json).toHaveBeenCalledWith({
@@ -415,6 +425,7 @@ describe('Product Controller Tests', () => {
           price: 60000,
           updatedBy: 'user-123',
         },
+        include: { measure: true },
       });
 
       expect(mockResponse.json).toHaveBeenCalledWith({

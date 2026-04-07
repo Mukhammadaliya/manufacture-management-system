@@ -382,7 +382,7 @@ bot.on('message', async (msg) => {
 
       const item = await prisma.orderItem.findUnique({
         where: { id: qtySession.itemId },
-        include: { product: true },
+        include: { product: { include: { measure: true } } },
       });
 
       if (!item) {
@@ -394,8 +394,8 @@ bot.on('message', async (msg) => {
       const message =
         `📝 **Miqdor o'zgarishi**\n\n` +
         `📦 Mahsulot: ${item.product.name}\n` +
-        `📊 Eski miqdor: ${item.quantity} ${item.product.unit}\n` +
-        `📊 Yangi miqdor: ${newQuantity} ${item.product.unit}\n\n` +
+        `📊 Eski miqdor: ${item.quantity} ${item.product.measure.shortName}\n` +
+        `📊 Yangi miqdor: ${newQuantity} ${item.product.measure.shortName}\n\n` +
         `O'zgartirish sababini kiriting:`;
 
       quantityChangeSessions[chatId] = {
@@ -417,7 +417,7 @@ bot.on('message', async (msg) => {
       const item = await prisma.orderItem.findUnique({
         where: { id: qtySession.itemId },
         include: {
-          product: true,
+          product: { include: { measure: true } },
           order: { include: { distributor: true } },
         },
       });
@@ -449,7 +449,7 @@ bot.on('message', async (msg) => {
       const successMessage =
         `✅ **Miqdor muvaffaqiyatli o'zgartirildi!**\n\n` +
         `📦 Mahsulot: ${item.product.name}\n` +
-        `📊 Yangi miqdor: ${newQuantity} ${item.product.unit}\n` +
+        `📊 Yangi miqdor: ${newQuantity} ${item.product.measure.shortName}\n` +
         `ℹ️ Sabab: ${reason}\n\n` +
         `Distribyutorga xabar yuborildi.`;
 
@@ -928,12 +928,12 @@ bot.on('callback_query', async (query) => {
       const itemId = withoutPrefix.length >= 36 ? withoutPrefix.slice(0, 36) : withoutPrefix;
       const item = await prisma.orderItem.findUnique({
         where: { id: itemId },
-        include: { product: true },
+        include: { product: { include: { measure: true } } },
       });
       if (item) {
         editItemQtySessions[chatId] = { itemId, orderId: item.orderId };
         await bot.sendMessage(chatId,
-          `📦 ${item.product.name}\nJoriy: ${item.quantity} ${item.product.unit}\n\nYangi miqdor kiriting:`
+          `📦 ${item.product.name}\nJoriy: ${item.quantity} ${item.product.measure.shortName}\n\nYangi miqdor kiriting:`
         );
       }
       await bot.answerCallbackQuery(query.id);
@@ -975,12 +975,12 @@ bot.on('callback_query', async (query) => {
       const itemId = data.replace('change_item_', '');
       const item = await prisma.orderItem.findUnique({
         where: { id: itemId },
-        include: { product: true },
+        include: { product: { include: { measure: true } } },
       });
       if (item) {
         editItemQtySessions[chatId] = { itemId, orderId: item.orderId };
         await bot.sendMessage(chatId,
-          `📦 ${item.product.name}\nJoriy: ${item.quantity} ${item.product.unit}\n\nYangi miqdor kiriting:`
+          `📦 ${item.product.name}\nJoriy: ${item.quantity} ${item.product.measure.shortName}\n\nYangi miqdor kiriting:`
         );
       } else {
         await bot.sendMessage(chatId, '❌ Mahsulot topilmadi.');

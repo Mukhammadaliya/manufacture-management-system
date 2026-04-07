@@ -31,7 +31,7 @@ export async function generateOrdersExcel(filters: ReportFilters): Promise<strin
     where: whereCondition,
     include: {
       distributor: true,
-      items: { include: { product: true } },
+      items: { include: { product: { include: { measure: true } } } },
     },
     orderBy: { orderSeq: 'asc' },
   });
@@ -47,7 +47,7 @@ export async function generateOrdersExcel(filters: ReportFilters): Promise<strin
     order.items.forEach((item) => {
       productMap.set(
         item.product.id,
-        `${item.product.name} (${item.product.unit})`
+        `${item.product.name} (${item.product.measure.shortName})`
       );
     });
   });

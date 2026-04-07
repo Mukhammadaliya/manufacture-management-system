@@ -20,11 +20,6 @@ enum OrderStatus {
   CANCELLED
 }
 
-enum ProductUnit {
-  KG
-  PIECE
-}
-
 enum NotificationType {
   ORDER_STATUS
   ORDER_CHANGE
@@ -54,7 +49,7 @@ model Product {
   id          String      @id @default(uuid())
   name        String
   code        String      @unique
-  unit        ProductUnit
+  measureId   Int         @map("measure_id")
   price       Decimal     @default(0) @db.Decimal(15, 2)
   isActive    Boolean     @default(true) @map("is_active")
   createdAt   DateTime    @default(now()) @map("created_at")
@@ -62,9 +57,21 @@ model Product {
   createdBy   String      @default("SYSTEM") @map("created_by")
   updatedBy   String      @default("SYSTEM") @map("updated_by")
 
+  measure     Measure     @relation(fields: [measureId], references: [id])
   orderItems  OrderItem[]
 
   @@map("products")
+}
+
+model Measure {
+  id        Int       @id @default(autoincrement())
+  name      String
+  shortName String    @map("short_name")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  products  Product[]
+
+  @@map("measures")
 }
 
 model Order {
